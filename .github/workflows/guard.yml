@@ -29,6 +29,8 @@ jobs:
           TITLE: ${{ github.event.pull_request.title }}
           BODY: ${{ github.event.pull_request.body }}
           BASE: ${{ github.event.pull_request.base.sha }}
+          # A PR's HEAD is GitHub's merge commit, not its own: the PR's commits end at its head.
+          TIP: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           printf '%s\n%s\n' "$TITLE" "$BODY" > "$RUNNER_TEMP/pr.txt"
-          node .github/scripts/kskill-guard.mjs --self "$GITHUB_REPOSITORY" --commits "${BASE:+$BASE..}HEAD" --text-file "$RUNNER_TEMP/pr.txt"
+          node .github/scripts/kskill-guard.mjs --self "$GITHUB_REPOSITORY" --commits "${BASE:+$BASE..}$TIP" --text-file "$RUNNER_TEMP/pr.txt"

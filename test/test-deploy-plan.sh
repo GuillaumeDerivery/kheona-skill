@@ -17,7 +17,7 @@ ruby -ryaml -e 'w=YAML.load_file(ARGV[0]); File.write(ARGV[1], w["jobs"]["plan"]
 # plan <name> <.kheona.json> [branch]: "rc=N" then the outputs and the annotations.
 plan() {
   local d="$T/$1"; mkdir -p "$d"; printf '%s' "$2" > "$d/.kheona.json"
-  (cd "$d" && GITHUB_OUTPUT="$d/out" EVENT=push GITHUB_REF="refs/heads/${3:-main}" GITHUB_REPOSITORY=o/r bash "$T/plan.sh" > "$d/log" 2>&1; echo "rc=$?")
+  (cd "$d" && GITHUB_OUTPUT="$d/out" EVENT=${EVENT:-push} GITHUB_REF="refs/heads/${3:-main}" GITHUB_REPOSITORY=o/r bash "$T/plan.sh" > "$d/log" 2>&1; echo "rc=$?")
   cat "$d/out" 2>/dev/null; grep -E '::(error|notice)::' "$d/log"
 }
 E='"ecrRepository":"x","region":"eu-west-3","cluster":"c","namespace":"n","deployments":["d"]'
@@ -46,6 +46,11 @@ check "different images into one ecrRepository: refused"  "$out" 'same ecrReposi
 out=$(plan bad-name "{\"workflows\":{\"cd\":{\"staging\":{$E,\"buildArgs\":{\"bad-name\":\"v\"}},\"prod\":false}}}")
 check "a build argument name that is not NAME: refused"    "$out" 'buildArgs must be an object of NAME'
 check "the action builds natively only: no QEMU"           "$(grep -c "setup-qemu-action" "$HERE/.github/actions/kskill-deploy-eks/action.yml" "$HERE/.github/workflows/kskill-deploy.yml" | cut -d: -f2 | paste -sd+ - | bc)" '^0$'
+
+out=$(EVENT=pull_request plan pr-refused "{\"workflows\":{\"cd\":{\"staging\":{$E}}}}")
+check "a pull request: refused"                            "$out" 'only deploys as a dry run'
+out=$(EVENT=pull_request DRY_RUN=true plan pr-dry "{\"workflows\":{\"cd\":{\"staging\":{$E}}}}")
+check "a pull request as a dry run: staging"               "$out" '^environment=staging$'
 
 echo "$pass passed, $failn failed"
 [ "$failn" -eq 0 ]
