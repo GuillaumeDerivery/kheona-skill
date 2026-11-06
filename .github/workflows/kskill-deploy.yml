@@ -132,6 +132,7 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           INPUT_ENV: ${{ inputs.environment }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
           out() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
@@ -151,6 +152,7 @@ jobs:
             push:refs/heads/main) env=staging ;;
             push:refs/heads/prod) env=prod ;;
             workflow_dispatch:*) env="$INPUT_ENV" ;;
+            pull_request:*) [ "${DRY_RUN:-false}" = true ] || fail "A pull request only deploys as a dry run."; env=staging ;;
             *) fail "Unexpected trigger $EVENT on $GITHUB_REF." ;;
           esac
           # production ships only from the release branch, by hand as well.
