@@ -23,6 +23,8 @@ module "token_broker" {
 }
 ```
 
+Leave `hostname` empty unless the zone lets GitHub's runners through. Many zones show datacenter traffic a bot challenge: the request ends in a 403 the Worker never sees. The workers.dev address has no such rules.
+
 Then store the key, converted to PKCS#8, once:
 
 ```bash

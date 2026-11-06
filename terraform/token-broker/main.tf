@@ -23,3 +23,11 @@ resource "cloudflare_workers_custom_domain" "broker" {
   hostname   = var.hostname
   service    = cloudflare_workers_script.broker.script_name
 }
+
+# The workers.dev address, off by default on a new script.
+resource "cloudflare_workers_script_subdomain" "broker" {
+  account_id       = var.account_id
+  script_name      = cloudflare_workers_script.broker.script_name
+  enabled          = var.hostname == ""
+  previews_enabled = false
+}
