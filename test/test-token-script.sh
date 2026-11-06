@@ -28,5 +28,5 @@ check "the broker's refusal: exit 1" "$rc" '^1$'
 check "... with its reason" "$out" 'HTTP 403 owner not allowed'
 out=$(run '<!DOCTYPE html><title>Just a moment...</title>' 403); rc=$?
 check "a page in front of the broker: exit 1" "$rc" '^1$'
-check "... says so" "$out" "not the broker's answer"
+check "... says so" "$out" 'not from the broker'
 echo "$pass passed, $failed failed"; [ "$failed" = 0 ]

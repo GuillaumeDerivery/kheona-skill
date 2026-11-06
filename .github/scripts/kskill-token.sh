@@ -23,7 +23,7 @@ json=${response%$'\n'*}
 if [ "$status" != 200 ]; then
   reason=$(jq -r '.error // empty' <<<"$json" 2>/dev/null || true)
   # No JSON error: the answer came from whatever is in front of the broker, usually a bot challenge on its zone.
-  echo "::error::The token broker refused: HTTP $status ${reason:-(not the broker's answer: something in front of it blocked this runner, see terraform/token-broker/README.md)}"
+  echo "::error::The token broker refused: HTTP $status ${reason:-(not from the broker: something in front of it blocked this runner, see terraform/token-broker/README.md)}"
   exit 1
 fi
 token=$(jq -r .token <<<"$json")
