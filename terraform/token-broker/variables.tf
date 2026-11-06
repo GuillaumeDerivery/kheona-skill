@@ -12,7 +12,7 @@ variable "script_name" {
 }
 
 variable "hostname" {
-  description = "Host the broker answers on; empty keeps the workers.dev address."
+  description = "Host the broker answers on; empty turns on the workers.dev address. The zone must not challenge GitHub's runners (README)."
   type        = string
   default     = ""
 }

@@ -21,7 +21,9 @@ response=$(curl -sS --max-time 20 -w '\n%{http_code}' -H "Authorization: Bearer 
 status=${response##*$'\n'}
 json=${response%$'\n'*}
 if [ "$status" != 200 ]; then
-  echo "::error::The token broker refused: HTTP $status $(jq -r '.error // empty' <<<"$json" 2>/dev/null)"
+  reason=$(jq -r '.error // empty' <<<"$json" 2>/dev/null || true)
+  # No JSON error: the answer came from whatever is in front of the broker, usually a bot challenge on its zone.
+  echo "::error::The token broker refused: HTTP $status ${reason:-(not from the broker: something in front of it blocked this runner, see terraform/token-broker/README.md)}"
   exit 1
 fi
 token=$(jq -r .token <<<"$json")
