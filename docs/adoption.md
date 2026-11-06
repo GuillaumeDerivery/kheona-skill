@@ -24,7 +24,7 @@
    ```
 
 3. **`renovate.json`:** `{"extends": ["github>owner/kheona-skill//renovate/default"]}`.
-4. **Variables and secrets:** see [secrets.md](secrets.md). Callers pass secrets by name; `secrets: inherit` does not cross owners. The App key is never one of them.
+4. **Variables and secrets:** see [secrets.md](secrets.md) and the [README](../README.md#secrets). Callers pass secrets by name; `secrets: inherit` does not cross owners. The App key is never one of them.
 5. **Topic:** add `kheona-skill` or `kskill`. A library's consumers add the topic the library's `.kheona.json` names.
 6. **Prove it:** open a test PR. It must pass CI and review, and merge.
 
