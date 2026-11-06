@@ -11,12 +11,18 @@ name: Kheona Skill · CD · Deploy to EKS
 description: Build, push by commit SHA, set image on EKS, wait for the rollout, report what runs.
 
 inputs:
+  role-arn:
+    description: AWS role to assume with the job's OIDC identity (needs `id-token: write`). When set, the stored key is not used.
+    required: false
+    default: ""
   aws-access-key-id:
-    description: AWS access key id (from a secret).
-    required: true
+    description: AWS access key id (from a secret). Required without role-arn.
+    required: false
+    default: ""
   aws-secret-access-key:
-    description: AWS secret access key (from a secret).
-    required: true
+    description: AWS secret access key (from a secret). Required without role-arn.
+    required: false
+    default: ""
   region:
     description: AWS region of the ECR repository and the EKS cluster.
     required: true
@@ -60,6 +66,7 @@ runs:
     - name: Check the inputs
       shell: bash
       env:
+        IN_ROLE: ${{ inputs.role-arn }}
         IN_KEY_ID: ${{ inputs.aws-access-key-id }}
         IN_SECRET: ${{ inputs.aws-secret-access-key }}
         IN_REGION: ${{ inputs.region }}
@@ -68,10 +75,11 @@ runs:
         IN_TARGETS: ${{ inputs.targets }}
       run: |
         bad=0
-        for pair in "aws-access-key-id:IN_KEY_ID" "aws-secret-access-key:IN_SECRET" "region:IN_REGION" \
-                    "cluster:IN_CLUSTER" "ecr-repository:IN_REPOSITORY" "targets:IN_TARGETS"; do
+        keys=()
+        [ -n "${IN_ROLE:-}" ] || keys=("aws-access-key-id:IN_KEY_ID" "aws-secret-access-key:IN_SECRET")
+        for pair in "${keys[@]}" "region:IN_REGION" "cluster:IN_CLUSTER" "ecr-repository:IN_REPOSITORY" "targets:IN_TARGETS"; do
           var="${pair#*:}"
-          if [ -z "${!var}" ]; then
+          if [ -z "${!var:-}" ]; then
             echo "::error::Deploy input '${pair%%:*}' is empty."
             bad=1
           fi
@@ -85,8 +93,9 @@ runs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
       with:
-        aws-access-key-id: ${{ inputs.aws-access-key-id }}
-        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+        role-to-assume: ${{ inputs.role-arn }}
+        aws-access-key-id: ${{ inputs.role-arn == '' && inputs.aws-access-key-id || '' }}
+        aws-secret-access-key: ${{ inputs.role-arn == '' && inputs.aws-secret-access-key || '' }}
         aws-region: ${{ inputs.region }}
 
     # Pinned and checksum-verified. kubectl supports one minor of skew against the API server:
