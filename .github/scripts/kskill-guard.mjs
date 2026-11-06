@@ -26,6 +26,8 @@ if (!terms.length) { console.error('kskill-guard: no list (KSKILL_GUARD_LIST or 
 // A real cloud account id: twelve digits, except the documented placeholder.
 const accountId = /(?<![0-9])(?!111122223333)[0-9]{12}(?![0-9])/;
 const selfLower = self.toLowerCase();
+const owner = selfLower.split('/')[0];
+const ownerEmail = new RegExp(`^[0-9]+\\+${owner.replace(/[^a-z0-9-]/g, '')}@users\\.noreply\\.github\\.com$`, 'i');
 const hits = [];
 function scan(where, text) {
   text.split('\n').forEach((line, i) => {
@@ -47,7 +49,10 @@ if (!argv.includes('--no-files')) {
 }
 if (range) {
   for (const sha of git('rev-list', range).split('\n').filter(Boolean)) {
-    scan(`commit ${sha.slice(0, 12)}`, git('show', '-s', '--format=%an%n%ae%n%cn%n%ce%n%B', sha));
+    // The owner's own GitHub identity may author and commit here: GitHub writes it on a merge. Any other identity is scanned.
+    const [an, ae, cn, ce] = git('show', '-s', '--format=%an%n%ae%n%cn%n%ce', sha).split('\n');
+    const people = [[an, ae], [cn, ce]].filter(([, email]) => !ownerEmail.test(email)).flat();
+    scan(`commit ${sha.slice(0, 12)}`, [...people, git('show', '-s', '--format=%B', sha)].join('\n'));
   }
 }
 for (const f of all('--text-file')) scan(`text ${f}`, readFileSync(f, 'utf8'));

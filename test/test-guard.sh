@@ -37,6 +37,15 @@ check "... the placeholder passes" "$rc" '^0$'
 printf 'Terms: SecretCorp\n' > "$T/pr"
 out=$(KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" --no-files --text-file "$T/pr" 2>&1); rc=$?
 check "the text of a PR" "$rc" '^1$'
+git -C "$R" commit -q --allow-empty -m "merged" --author 'SecretCorp <1+SecretCorp@users.noreply.github.com>'
+out=$(KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" --no-files --self SecretCorp/kheona-skill --commits HEAD~1..HEAD 2>&1); rc=$?
+check "the owner's own GitHub identity may commit" "$rc" '^0$'
+git -C "$R" commit -q --allow-empty --amend -m "merged" --author 'SecretCorp <1+Other@users.noreply.github.com>'
+out=$(KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" --no-files --self SecretCorp/kheona-skill --commits HEAD~1..HEAD 2>&1); rc=$?
+check "... another identity holding a term does not" "$rc" '^1$'
+git -C "$R" commit -q --allow-empty --amend -m "SecretCorp" --author 'SecretCorp <1+SecretCorp@users.noreply.github.com>'
+out=$(KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" --no-files --self SecretCorp/kheona-skill --commits HEAD~1..HEAD 2>&1); rc=$?
+check "... and the owner's message is still scanned" "$rc" '^1$'
 out=$(GITHUB_ACTIONS=true KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" --no-files --text-file "$T/pr" 2>&1); rc=$?
 check "on GitHub, a hit is an error annotation" "$rc $out" '^1 ::error::'
 echo "$pass passed, $failed failed"; [ "$failed" = 0 ]
