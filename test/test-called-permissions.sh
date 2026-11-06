@@ -50,6 +50,12 @@ for (const f of files) for (const [id, job] of Object.entries(all[f].jobs)) {
   if (short.length) { failed++; console.log(`FAIL ${f} job ${id} calls ${job.uses}, missing ${short.join(', ')}`); }
   else { pass++; console.log(`ok   ${f} job ${id}`); }
 }
+// The broker and GitHub's token API name permissions with underscores, unlike a workflow's `permissions:` block.
+for (const f of files) for (const [, json] of readFileSync(`${dir}/${f}`, 'utf8').matchAll(/permissions: '(\{.*\})'/g)) {
+  const bad = Object.keys(JSON.parse(json)).filter((k) => k.includes('-'));
+  if (bad.length) { failed++; console.log(`FAIL ${f} asks the broker for ${bad.join(', ')}: write it with an underscore`); }
+  else pass++;
+}
 console.log(`${pass} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
 JS
