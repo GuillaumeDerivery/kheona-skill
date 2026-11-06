@@ -1,0 +1,142 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# shipping is reviewing one PR and labelling it `ship`, not typing `git push origin origin/main:prod`. The ship
+# job of kskill-ship.yml runs this on the label `ship` added to the release PR (kskill/release -> prod) by a person, or
+# on workflow_dispatch with `ship` = the PR's head SHA, after minting the App's token and checking out `main`
+# (fetch-depth 0) with it. It checks the person has write access (never a bot) and that the PR's head is still the
+# commit they approved, refuses the bootstrap phase (kskill-phase.sh --ship), checks that pushing it is a
+# fast-forward of prod carrying only what main holds (.github/scripts/kskill-release.sh verify), then runs
+# `git push origin <sha>:prod` WITHOUT force: GitHub itself refuses anything but a fast-forward. That push starts the
+# production deploy or the store delivery of kskill-ship.yml, which runs the full gate first; the PR then shows
+# as merged. Never: ships on its own (no doctor dispatch or push ever ships, nothing adds the label), ships on an
+# approval (the label is the approval), uses GitHub's merge button, force-pushes prod.
+name: Kheona Skill · CD · Ship the release PR
+description: Fast-forward prod to the release PR's head a person labelled ship.
+
+inputs:
+  token:
+    description: the App's token for this repository (pushes prod; a GITHUB_TOKEN push would start no deploy).
+    required: true
+  github-token:
+    description: github.token, for the reads.
+    required: true
+  actor:
+    description: Who asked (github.event.sender.login).
+    required: true
+  want:
+    description: The head SHA as the person saw it when labelling, or the SHA they typed.
+    required: true
+  label-pr:
+    description: The PR whose `ship` label to take off afterwards (a label event), or empty.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Check who asked
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        ACTOR: ${{ inputs.actor }}
+      run: |
+        fail() { echo "::error::$1"; exit 1; }
+        [ -n "$GH_TOKEN" ] || fail "No App token (secrets KSKILL_TOKEN_BROKER_URL): it pushes prod."
+        case "$ACTOR" in *'[bot]') fail "$ACTOR is a bot: only a person ships." ;; esac
+        role="$(gh api "repos/$GH_REPO/collaborators/$ACTOR/permission" --jq '.role_name')"
+        case "$role" in admin|maintain|write) ;; *) fail "$ACTOR has '$role' access: shipping needs write." ;; esac
+        echo "Asked by $ACTOR ($role)."
+
+    - name: Find the release PR
+      id: pr
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        BRANCH: kskill/release
+        WANT: ${{ inputs.want }}
+      run: |
+        fail() { echo "::error::$1"; exit 1; }
+        json="$(gh pr list --head "$BRANCH" --base prod --state open --json number,headRefOid)"
+        [ "$(jq length <<<"$json")" = 1 ] || fail "Expected one open release PR ($BRANCH -> prod), found $(jq length <<<"$json")."
+        number="$(jq -r '.[0].number' <<<"$json")"; head="$(jq -r '.[0].headRefOid' <<<"$json")"
+        echo "number=$number" >> "$GITHUB_OUTPUT"
+        [[ "$WANT" =~ ^[0-9a-f]{7,40}$ ]] || fail "'$WANT' is not a commit SHA."
+        if [[ "$head" != "$WANT"* ]]; then
+          fail "The release PR's head is now ${head:0:7}, not ${WANT:0:7}: it moved after it was reviewed. Review it again, then add the label again."
+        fi
+        echo "sha=$head" >> "$GITHUB_OUTPUT"
+
+    # no production release in the bootstrap phase.
+    - name: Check the phase
+      shell: bash
+      run: bash "$KSKILL_HOME/.github/scripts/kskill-phase.sh" --ship
+
+    - name: Check the push is a fast-forward of main's content
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GH_REPO: ${{ github.repository }}
+        SHA: ${{ steps.pr.outputs.sha }}
+      # KSKILL_FORK as in actions/kskill-release-pr: a template's fork releases (skip_reason), the template itself does not.
+      run: |
+        fork="$(gh api "repos/$GH_REPO" --jq .fork)"
+        KSKILL_FORK="$fork" bash "$KSKILL_HOME/.github/scripts/kskill-release.sh" verify "$SHA"
+
+    # No --force: GitHub refuses a push to prod that is not a fast-forward, whatever the checks above missed.
+    - name: Fast-forward prod
+      id: push
+      shell: bash
+      env:
+        SHA: ${{ steps.pr.outputs.sha }}
+        ACTOR: ${{ inputs.actor }}
+      run: |
+        before="$(git rev-parse origin/prod)"
+        git push origin "$SHA:refs/heads/prod"
+        echo "before=$before" >> "$GITHUB_OUTPUT"
+        {
+          echo "### Shipped ${SHA:0:7} to prod"
+          echo
+          echo "prod: \`$before\` -> \`$SHA\` (fast-forward), asked by @$ACTOR."
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Report on the PR
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        BRANCH: kskill/release
+        NUMBER: ${{ steps.pr.outputs.number }}
+        SHA: ${{ steps.pr.outputs.sha }}
+        BEFORE: ${{ steps.push.outputs.before }}
+        ACTOR: ${{ inputs.actor }}
+      run: |
+        runs="$GITHUB_SERVER_URL/$GH_REPO/actions?query=branch%3Aprod"
+        gh pr comment "$NUMBER" --body "Shipped by @$ACTOR: \`prod\` fast-forwarded from ${BEFORE:0:7} to ${SHA:0:7}. Deploy: $runs"
+        # GitHub marks the PR merged on its own once prod holds its head, a moment after the push: a close racing it fails
+        # with "Could not close the pull request". Only a PR still open after a failed close is an error.
+        if [ "$(gh pr view "$NUMBER" --json state --jq .state)" = OPEN ]; then
+          gh pr close "$NUMBER" || [ "$(gh pr view "$NUMBER" --json state --jq .state)" != OPEN ]
+        fi
+        git push --force-with-lease="$BRANCH:$SHA" origin ":refs/heads/$BRANCH" || true
+
+    - name: Say why it did not ship
+      if: failure() && steps.pr.outputs.number != '' && steps.push.outcome != 'success'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        NUMBER: ${{ steps.pr.outputs.number }}
+      run: |
+        gh pr comment "$NUMBER" --body "Not shipped: $GITHUB_SERVER_URL/$GH_REPO/actions/runs/$GITHUB_RUN_ID says why. \`prod\` is unchanged unless that run says otherwise." || true
+
+    # The label is an act, not a state: never left on the PR for a later head to inherit.
+    - name: Remove the label
+      if: always() && inputs.label-pr != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        NUMBER: ${{ inputs.label-pr }}
+      run: gh pr edit "$NUMBER" --remove-label ship >/dev/null 2>&1 || true

@@ -1,0 +1,431 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Trigger: called by Kheona Skill · PR, Main and the production deploy; by hand
+# Purpose: the Node gate: repository check, lint, typecheck, build, tests with coverage, audit, Docker build where none follows
+# Effect: nothing: reports only
+# The Node/TypeScript gate . Called, never triggered by a push of its own:
+# by `Kheona Skill · PR` on every pull request (kskill-pr.yml, any base: a stacked PR must get checks), by
+# `Kheona Skill · Main` on every push to main (kskill-main.yml, before the staging deploy) and by the production deploy
+# (`uses: ./.github/workflows/kskill-ci.yml`, `needs:`); by hand too. Installed in every Node
+# repository as `.github/workflows/kskill-ci.yml`. It never deploys, pushes an image or writes to the repository.
+#
+# Jobs: "Read the configuration" (the App secrets check, the tested tree, the repository check from
+# actions/kskill-repo-check, then .kheona.json) -> "Check, build and test" and, when a Dockerfile exists, "Build the
+# Docker image" (built, never pushed), in parallel. The image is built only where nothing else builds it: never on a
+# pull request, and not where
+# the caller passes `image: false` (the deploy's gate, kskill-main.yml before a staging deploy). Needs nothing beyond a
+# caller's `contents: read`.
+# Check order: lib submodule install + build, npm ci, lib version match, build, typecheck, lint (must carry
+# --max-warnings=0), format, import graph, dead code, tests under coverage, coverage threshold; the coverage
+# summary and the raw report artifact (`coverage`) are published `if: always()`.
+# Node comes from .nvmrc (else .node-version, else package.json engines.node), never from this file.
+#
+# .kheona.json, all optional (`workflows.ci`):
+#   skip            object  {}               check -> reason it is off. Checks: build, typecheck, lint, format,
+#                                            importGraph, deadCode, test, coverageCheck, coverageReport, docker,
+#                                            libVersions. The reason is printed in every run's summary.
+#                                            envFiles turns off the repository check's .env check (any stack).
+#                                            gitCrypt turns off its git-crypt check (any stack).
+#                                            mongoUri turns off its MongoDB connection string check (any stack).
+#                                            secretScan turns off the gitleaks secret scan (any stack).
+#   scripts         object  see right        check -> npm script it runs. Defaults: build=build,
+#                                            typecheck=typecheck, lint=lint, format=format:check,
+#                                            importGraph=depcruise, deadCode=knip, test=coverage,
+#                                            coverageCheck=coverage:check. A missing script fails, naming the key.
+#   env             object  {}               extra environment for every step (e.g. NPM_CONFIG_IGNORE_SCRIPTS).
+#   mongoDownload   boolean true             MONGOMS_RUNTIME_DOWNLOAD for the tests: the runner has no mongod.
+#   libPath         string  "submodules/lib" the lib submodule, installed and built first when .gitmodules has it.
+#   runOnPush       boolean true             retired, accepted and ignored: there is no standalone push run left
+#                                            (kskill-main.yml calls this gate once per push).
+#   timeoutMinutes  integer 30               timeout of "Check, build and test".
+#   coveragePath    string  "coverage/"      the raw coverage report uploaded as the `coverage` artifact.
+# Once per tree (kskill-tested-tree.sh): a push to the default branch (kskill-main.yml's call) whose tree a green
+# `Kheona Skill · PR` run tested, runs only its first job; `prod` and dispatches always run in full.
+# Not run on the release PR (head branch kskill/release): its head is main's commit (or main's tree on top of prod),
+# already tested on main, and the deploy that shipping starts runs this gate again.
+# .kheona.json `phase` (kskill-phase.sh): "bootstrap" runs the tests that exist (no `test` script: none yet, not
+# a failure) and reports the coverage threshold without failing on it; "established" (the default) gates both. A run
+# on `prod` (the deploy's gate on a production push) fails while the repository is in bootstrap.
+# Variable: KSKILL_TOKEN_BROKER_URL (the token broker), always: a read-only token for the template
+# check (kheona-skill) and the submodule clone (lib).
+name: Kheona Skill · CI
+
+on:
+  workflow_call:
+    inputs:
+      called:
+        description: Marks a called run. Leave the default.
+        type: boolean
+        default: true
+      image:
+        description: Build the Docker image in this gate (never on a pull request). false where the caller builds it (the deploy).
+        type: boolean
+        default: true
+      stack:
+        description: The stack, for the job names.
+        type: string
+        default: ''
+
+concurrency:
+  group: kskill-ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# actions: read: the reuse lookup (kskill-tested-tree.sh). A caller grants it to its `uses:` job.
+permissions:
+  contents: read
+  actions: read
+
+env:
+  KSKILL_BOT: ${{ vars.KSKILL_BOT }}
+  KSKILL_LIB_REPO: ${{ vars.KSKILL_LIB_REPO }}
+
+jobs:
+  setup:
+    name: Read the configuration
+    # Before any runner: not on the release PR.
+    if: github.head_ref != 'kskill/release'
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      # A push whose tree a green PR run tested (kskill-tested-tree.sh): nothing more to run.
+      run: ${{ steps.reuse.outputs.reused != 'true' && steps.config.outputs.run || 'false' }}
+      reused: ${{ steps.reuse.outputs.reused == 'true' }}
+      phase: ${{ steps.phase.outputs.phase }}
+      timeout: ${{ steps.config.outputs.timeout }}
+      node_version_file: ${{ steps.config.outputs.node_version_file }}
+      submodules: ${{ steps.config.outputs.submodules }}
+      has_lib: ${{ steps.config.outputs.has_lib }}
+      lib_path: ${{ steps.config.outputs.lib_path }}
+      env_json: ${{ steps.config.outputs.env_json }}
+      mongo: ${{ steps.config.outputs.mongo }}
+      coverage_path: ${{ steps.config.outputs.coverage_path }}
+      run_build: ${{ steps.config.outputs.run_build }}
+      run_typecheck: ${{ steps.config.outputs.run_typecheck }}
+      run_lint: ${{ steps.config.outputs.run_lint }}
+      run_format: ${{ steps.config.outputs.run_format }}
+      run_importGraph: ${{ steps.config.outputs.run_importGraph }}
+      run_deadCode: ${{ steps.config.outputs.run_deadCode }}
+      run_test: ${{ steps.config.outputs.run_test }}
+      run_coverageCheck: ${{ steps.config.outputs.run_coverageCheck }}
+      run_coverageReport: ${{ steps.config.outputs.run_coverageReport }}
+      run_docker: ${{ steps.config.outputs.run_docker }}
+      run_libVersions: ${{ steps.config.outputs.run_libVersions }}
+      script_build: ${{ steps.config.outputs.script_build }}
+      script_typecheck: ${{ steps.config.outputs.script_typecheck }}
+      script_lint: ${{ steps.config.outputs.script_lint }}
+      script_format: ${{ steps.config.outputs.script_format }}
+      script_importGraph: ${{ steps.config.outputs.script_importGraph }}
+      script_deadCode: ${{ steps.config.outputs.script_deadCode }}
+      script_test: ${{ steps.config.outputs.script_test }}
+      script_coverageCheck: ${{ steps.config.outputs.script_coverageCheck }}
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # fail in seconds with a readable message, not later as an unexplained submodule error. Fork PRs
+      # never get secrets, which is the other way to land here. The value is never printed.
+      - name: Check the secrets
+        env:
+          BROKER: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+        run: |
+          if [ -z "$BROKER" ]; then
+            echo "::error::Variable KSKILL_TOKEN_BROKER_URL is not set (fork PRs never get secrets): the repository check and the submodule clone need them."
+            exit 1
+          fi
+
+      # once per tree: a pull_request run records the tree it tests; a push to the default branch whose tree a
+      # green Kheona Skill · PR run already tested skips the rest of this gate (kskill-tested-tree.sh says exactly when;
+      # never on prod, never when unsure).
+      - name: Record the tested tree
+        id: tree
+        if: github.event_name == 'pull_request'
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-tested-tree.sh" record
+
+      - name: Upload the tested tree
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: kskill-tested-tree-${{ steps.tree.outputs.tree }}
+          path: ${{ steps.tree.outputs.file }}
+          retention-days: 14
+          overwrite: true
+
+      - name: Look for a green PR run of this tree
+        id: reuse
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-tested-tree.sh" find
+
+      # every caller as this version expects it, every other workflow declared.
+      - name: Check the repository
+        if: steps.reuse.outputs.reused != 'true'
+        uses: $/.github/actions/kskill-repo-check
+        with:
+          broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+          fork: ${{ github.event.repository.fork }}
+          sentry-project: ${{ vars.SENTRY_PROJECT }}
+
+      # bootstrap or established; a production push (the deploy's gate on `prod`) refuses bootstrap.
+      - name: Read the phase
+        id: phase
+        run: |
+          if [ "$GITHUB_REF" = refs/heads/prod ]; then bash "$KSKILL_HOME/.github/scripts/kskill-phase.sh" --ship; else bash "$KSKILL_HOME/.github/scripts/kskill-phase.sh"; fi
+
+      - name: Read .kheona.json
+        id: config
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CALLED: ${{ toJSON(inputs.called) == 'true' }}
+          PHASE: ${{ steps.phase.outputs.phase }}
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-node-config.sh" ci
+
+  checks:
+    name: Check, build and test
+    needs: setup
+    if: needs.setup.outputs.run == 'true'
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ fromJSON(needs.setup.outputs.timeout) }}
+    env:
+      LIB_PATH: ${{ needs.setup.outputs.lib_path }}
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      # persist-credentials: false also keeps checkout's GITHUB_TOKEN header off the submodule clones, which
+      # need the App token.
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Read-only, the library repository (a private submodule).
+      - name: Mint the library token
+        id: shared
+        if: needs.setup.outputs.submodules == 'true'
+        uses: $/.github/actions/kskill-token
+        with:
+          broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+          shared: 'true'
+          permissions: '{"contents": "read"}'
+
+      - name: Check out the submodules
+        if: needs.setup.outputs.submodules == 'true'
+        env:
+          SUBMODULE_TOKEN: ${{ steps.shared.outputs.token }}
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-checkout-submodules.sh"
+
+      - name: Set the extra environment
+        if: needs.setup.outputs.env_json != '{}'
+        env:
+          ENV_JSON: ${{ needs.setup.outputs.env_json }}
+        run: jq -r 'to_entries[] | "\(.key)=\(.value)"' <<< "$ENV_JSON" >> "$GITHUB_ENV"
+
+      # .nvmrc and the Dockerfile's node base image are one version. A bump of the Dockerfile tag that
+      # leaves .nvmrc behind fails here instead of splitting CI from the image.
+      - name: Check the runtime versions agree
+        if: hashFiles('.nvmrc') != '' && hashFiles('Dockerfile') != ''
+        run: |
+          version="$(tr -d '[:space:]' < .nvmrc)"
+          version="${version#v}"
+          stale="$(grep -iE '^FROM[[:space:]]+node:' Dockerfile | grep -viE "^FROM[[:space:]]+node:${version}(-|@|[[:space:]]|$)" || true)"
+          if [ -n "$stale" ]; then
+            echo "::error::.nvmrc says ${version} but the Dockerfile has: ${stale}"
+            exit 1
+          fi
+
+      # The npm cache keyed on both lockfiles: the lib's install fills it too.
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ${{ needs.setup.outputs.node_version_file }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ${{ needs.setup.outputs.lib_path }}/package-lock.json
+
+      # The tests use a `mongod` from PATH and refuse to download one by default (the lib's testing helper);
+      # this runner has none, so mongoDownload opts back into the download. A cache miss only costs time.
+      - name: Cache the MongoDB binary
+        if: needs.setup.outputs.mongo == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}-${{ hashFiles('package-lock.json', format('{0}/package-lock.json', needs.setup.outputs.lib_path)) }}
+
+      # The lib is a file: dependency on the submodule. It commits dist/, but building it here means a lib
+      # change that does not compile fails the gate instead of shipping a stale dist/.
+      - name: Install the lib's dependencies
+        if: needs.setup.outputs.has_lib == 'true'
+        working-directory: ${{ needs.setup.outputs.lib_path }}
+        run: npm ci
+
+      - name: Build the lib
+        if: needs.setup.outputs.has_lib == 'true'
+        working-directory: ${{ needs.setup.outputs.lib_path }}
+        run: npm run build
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The lib's MUST rule 1: every package the lib declares is locked at exactly the lib's version. Compares
+      # the two lockfiles (the root `npm ci` prunes the lib's node_modules, so installed trees compare nothing).
+      - name: Check the dependencies match the lib
+        if: needs.setup.outputs.run_libVersions == 'true'
+        run: node "$KSKILL_HOME/.github/scripts/kskill-check-lib-versions.mjs" "$LIB_PATH"
+
+      - name: Build
+        if: needs.setup.outputs.run_build == 'true'
+        env:
+          SCRIPT: ${{ needs.setup.outputs.script_build }}
+        run: npm run "$SCRIPT"
+
+      - name: Typecheck
+        if: needs.setup.outputs.run_typecheck == 'true'
+        env:
+          SCRIPT: ${{ needs.setup.outputs.script_typecheck }}
+        run: npm run "$SCRIPT"
+
+      - name: Lint
+        if: needs.setup.outputs.run_lint == 'true'
+        env:
+          SCRIPT: ${{ needs.setup.outputs.script_lint }}
+        run: npm run "$SCRIPT"
+
+      - name: Check the formatting
+        if: needs.setup.outputs.run_format == 'true'
+        env:
+          SCRIPT: ${{ needs.setup.outputs.script_format }}
+        run: npm run "$SCRIPT"
+
+      # layering and runtime import cycles.
+      - name: Check the import graph
+        if: needs.setup.outputs.run_importGraph == 'true'
+        env:
+          SCRIPT: ${{ needs.setup.outputs.script_importGraph }}
+        run: npm run "$SCRIPT"
+
+      # unused dependencies, files and exports.
+      - name: Look for dead code
+        if: needs.setup.outputs.run_deadCode == 'true'
+        env:
+          SCRIPT: ${{ needs.setup.outputs.script_deadCode }}
+        run: npm run "$SCRIPT"
+
+      # /the suite under coverage, then the floor. Both are tee'd into one log outside the uploaded
+      # report so the summary can quote the numbers. `set -o pipefail` is explicit: without it a failing npm
+      # piped into tee would report success.
+      - name: Run the tests
+        if: needs.setup.outputs.run_test == 'true'
+        env:
+          SCRIPT: ${{ needs.setup.outputs.script_test }}
+          MONGOMS_RUNTIME_DOWNLOAD: ${{ needs.setup.outputs.mongo }}
+        run: |
+          set -o pipefail
+          npm run "$SCRIPT" 2>&1 | tee "$RUNNER_TEMP/test-output.log"
+
+      # In the bootstrap phase the threshold is reported, not enforced.
+      - name: Check the coverage threshold
+        if: needs.setup.outputs.run_coverageCheck == 'true'
+        env:
+          SCRIPT: ${{ needs.setup.outputs.script_coverageCheck }}
+          MONGOMS_RUNTIME_DOWNLOAD: ${{ needs.setup.outputs.mongo }}
+          PHASE: ${{ needs.setup.outputs.phase }}
+        run: |
+          set -o pipefail
+          if npm run "$SCRIPT" 2>&1 | tee -a "$RUNNER_TEMP/test-output.log"; then exit 0; fi
+          [ "$PHASE" = bootstrap ] || exit 1
+          echo "::warning::Below the coverage threshold: reported only in the bootstrap phase; enforced once .kheona.json phase is established."
+
+      # Test counts and the coverage table's header and totals (c8, or node --test's own `ℹ` table). The
+      # per-file rows are in the uploaded report.
+      - name: Publish the coverage summary
+        if: always() && needs.setup.outputs.run_test == 'true'
+        run: |
+          {
+            echo '## Tests and coverage'
+            echo
+            echo '```'
+            grep -E '^(ℹ |# (tests|suites|pass|fail|cancelled|skipped|todo) |-{5,}\|[-|]*$|File +\||All files +\||ERROR: Coverage)' "$RUNNER_TEMP/test-output.log" \
+              || echo '(no test output captured: see the test steps above)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # the raw report on every run, so "what is untested" is answerable without rerunning anything.
+      - name: Upload the coverage report
+        if: always() && needs.setup.outputs.run_coverageReport == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: ${{ needs.setup.outputs.coverage_path }}
+          if-no-files-found: warn
+
+  docker:
+    name: Build the Docker image
+    needs: setup
+    if: >-
+      needs.setup.outputs.run == 'true' && needs.setup.outputs.run_docker == 'true' &&
+      github.event_name != 'pull_request' && toJSON(inputs.image) != 'false'
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The image copies the lib from the submodule, like the deploy's build.
+      # Read-only, the library repository (a private submodule).
+      - name: Mint the library token
+        id: shared
+        if: needs.setup.outputs.submodules == 'true'
+        uses: $/.github/actions/kskill-token
+        with:
+          broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+          shared: 'true'
+          permissions: '{"contents": "read"}'
+
+      - name: Check out the submodules
+        if: needs.setup.outputs.submodules == 'true'
+        env:
+          SUBMODULE_TOKEN: ${{ steps.shared.outputs.token }}
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-checkout-submodules.sh"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # The Dockerfile the deploy uses, where no deploy builds it (a push to main without a staging deploy, a dispatch).
+      # Not pushed. GIT_SHA as the deploy passes it. Layers cached in the Actions cache (main's runs write it).
+      - name: Build the image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=kskill-ci-docker
+          cache-to: ${{ github.ref == 'refs/heads/main' && 'type=gha,mode=max,scope=kskill-ci-docker' || '' }}

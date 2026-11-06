@@ -1,0 +1,139 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Sets up the checked-out repository's toolchain as its stack's `Kheona Skill · CI` copy does, so a job that runs
+# Claude Code (kskill-claude.yml) can run the repository's gate: the private submodules (kskill-checkout-submodules.sh,
+# with the token given), then
+#   node     kskill-node-config.sh ci (the Node version file, the lib, `workflows.ci.env`, the gate's npm scripts),
+#            setup-node, the lib's `npm ci` + build, `npm ci`
+#   flutter  kskill-flutter-version.sh, flutter-action, `flutter pub get --enforce-lockfile`
+#   python   kskill-python-version.sh, setup-python, pipenv (input pipenv-version), `pipenv install --dev --deploy`
+# The stack is the root manifest's (as kskill-repo-check.sh reads it): pubspec.yaml = flutter, Pipfile or
+# pyproject.toml = python, package.json = node; none = nothing to set up. Each stack's helper script is the one its CI
+# copy already brings. Writes the gate, one `check: command` per line, to the file the `gate` output names (Node: the
+# npm scripts of every check that is on; other stacks: empty, the repository's CLAUDE.md names its commands).
+# Never pushes, never reads .kheona.json beyond what the CI reads, never prints the token.
+name: Kheona Skill · Set up the toolchain
+description: Set up the repository's toolchain as its kskill-ci copy does (submodules, runtime, dependencies).
+
+inputs:
+  token:
+    description: Token that clones the private submodules (the App, read on the library repository). Empty, a repository with submodules fails here.
+    required: false
+    default: ''
+  pipenv-version:
+    description: Pipenv version for a Python repository; keep equal to kskill-ci-python.yml's PIPENV_VERSION.
+    required: false
+    default: '2026.8.0'
+
+outputs:
+  stack:
+    description: node, flutter, python or none.
+    value: ${{ steps.stack.outputs.stack }}
+  gate:
+    description: 'Path of the file listing the gate, one "check: command" per line (empty for a stack without one).'
+    value: ${{ steps.stack.outputs.gate }}
+
+runs:
+  using: composite
+  steps:
+    - name: Read the stack
+      id: stack
+      shell: bash
+      run: |
+        stack=none
+        [ -f package.json ] && stack=node
+        { [ -f Pipfile ] || [ -f pyproject.toml ]; } && stack=python
+        [ -f pubspec.yaml ] && stack=flutter
+        gate="$RUNNER_TEMP/kskill-gate.txt"; : > "$gate"
+        { echo "stack=$stack"; echo "gate=$gate"; } | tee -a "$GITHUB_OUTPUT"
+
+    - name: Check out the submodules
+      if: steps.stack.outputs.stack != 'none'
+      shell: bash
+      env:
+        SUBMODULE_TOKEN: ${{ inputs.token }}
+      run: if [ -f .gitmodules ]; then bash "$KSKILL_HOME/.github/scripts/kskill-checkout-submodules.sh"; fi
+
+    - name: Read .kheona.json
+      id: node
+      if: steps.stack.outputs.stack == 'node'
+      shell: bash
+      env:
+        EVENT_NAME: workflow_dispatch
+        GATE: ${{ steps.stack.outputs.gate }}
+      run: |
+        out="$RUNNER_TEMP/kskill-node-config.txt"
+        GITHUB_OUTPUT="$out" bash "$KSKILL_HOME/.github/scripts/kskill-node-config.sh" ci
+        cat "$out" >> "$GITHUB_OUTPUT"
+        # The gate: the npm scripts of every check that is on, as the CI runs them.
+        awk -F= '/^run_/ { r[substr($1, 5)] = $2 } /^script_/ { s[substr($1, 8)] = $2 }
+          END { for (c in s) if (r[c] == "true") print c ": npm run " s[c] }' "$out" | sort > "$GATE"
+        cat "$GATE"
+
+    - name: Set the extra environment
+      if: steps.stack.outputs.stack == 'node' && steps.node.outputs.env_json != '{}'
+      shell: bash
+      env:
+        ENV_JSON: ${{ steps.node.outputs.env_json }}
+      run: jq -r 'to_entries[] | "\(.key)=\(.value)"' <<< "$ENV_JSON" >> "$GITHUB_ENV"
+
+    - name: Set up Node
+      if: steps.stack.outputs.stack == 'node'
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: ${{ steps.node.outputs.node_version_file }}
+        cache: npm
+
+    - name: Install the Node dependencies
+      if: steps.stack.outputs.stack == 'node'
+      shell: bash
+      env:
+        HAS_LIB: ${{ steps.node.outputs.has_lib }}
+        LIB_PATH: ${{ steps.node.outputs.lib_path }}
+        MONGOMS_RUNTIME_DOWNLOAD: ${{ steps.node.outputs.mongo }}
+      run: |
+        if [ "$HAS_LIB" = true ]; then npm ci --prefix "$LIB_PATH" && npm run build --prefix "$LIB_PATH"; fi
+        npm ci
+        # The tests download a mongod as the CI's do (workflows.ci.mongoDownload).
+        echo "MONGOMS_RUNTIME_DOWNLOAD=$MONGOMS_RUNTIME_DOWNLOAD" >> "$GITHUB_ENV"
+
+    - name: Read the Flutter version
+      id: flutter
+      if: steps.stack.outputs.stack == 'flutter'
+      shell: bash
+      run: bash "$KSKILL_HOME/.github/scripts/kskill-flutter-version.sh" | tee -a "$GITHUB_OUTPUT"
+
+    - name: Set up Flutter
+      if: steps.stack.outputs.stack == 'flutter'
+      uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+      with:
+        flutter-version: ${{ steps.flutter.outputs.version }}
+        channel: ${{ steps.flutter.outputs.channel }}
+        cache: true
+
+    - name: Install the Flutter dependencies
+      if: steps.stack.outputs.stack == 'flutter'
+      shell: bash
+      run: flutter pub get --enforce-lockfile
+
+    - name: Read the Python version
+      id: python
+      if: steps.stack.outputs.stack == 'python'
+      shell: bash
+      run: echo "version=$(bash "$KSKILL_HOME/.github/scripts/kskill-python-version.sh" .)" | tee -a "$GITHUB_OUTPUT"
+
+    - name: Set up Python
+      if: steps.stack.outputs.stack == 'python'
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: ${{ steps.python.outputs.version }}
+        cache: pipenv
+
+    - name: Install the Python dependencies
+      if: steps.stack.outputs.stack == 'python'
+      shell: bash
+      env:
+        PIPENV_VERSION: ${{ inputs.pipenv-version }}
+      run: |
+        python -m pip install --disable-pip-version-check "pipenv==$PIPENV_VERSION"
+        pipenv install --dev --deploy

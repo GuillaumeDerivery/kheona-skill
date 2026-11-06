@@ -1,0 +1,48 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Trigger: called by the private runner repository, for open PRs here, a fork's included
+# Purpose: the guard where a fork's PR has no secret: it reads the PR, never runs it, and sets a generic status
+# Effect: a commit status `guard` on the PR's head; a PR cannot merge while it fails
+name: Kheona Skill · Guard re-check
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        description: owner/name of the public repository.
+        type: string
+        required: true
+    secrets:
+      KSKILL_GUARD_TERMS:
+        required: true
+      STATUS_TOKEN:
+        description: A token that can set commit statuses on it.
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  recheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+      - name: Check every open PR
+        env:
+          GH_TOKEN: ${{ secrets.STATUS_TOKEN }}
+          KSKILL_GUARD_TERMS: ${{ secrets.KSKILL_GUARD_TERMS }}
+          REPO: ${{ inputs.repository }}
+        run: |
+          git clone -q --filter=blob:none "https://github.com/$REPO.git" "$RUNNER_TEMP/r"
+          gh pr list -R "$REPO" --state open --limit 200 --json number,headRefOid,baseRefOid,title,body > "$RUNNER_TEMP/prs.json"
+          while read -r pr; do
+            n=$(jq -r .number <<<"$pr"); head=$(jq -r .headRefOid <<<"$pr"); base=$(jq -r .baseRefOid <<<"$pr")
+            git -C "$RUNNER_TEMP/r" fetch -q origin "pull/$n/head"
+            git -C "$RUNNER_TEMP/r" checkout -q --detach "$head"
+            jq -r '.title, .body' <<<"$pr" > "$RUNNER_TEMP/text"
+            state=success
+            node "$KSKILL_HOME/.github/scripts/kskill-guard.mjs" --repo "$RUNNER_TEMP/r" --self "$REPO" --commits "$base..$head" --text-file "$RUNNER_TEMP/text" > /dev/null || state=failure
+            gh api "repos/$REPO/statuses/$head" -f state="$state" -f context=guard -f description="Rule 0" > /dev/null
+          done < <(jq -c '.[]' "$RUNNER_TEMP/prs.json")

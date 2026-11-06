@@ -1,0 +1,87 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Trigger: a push to the default branch of a repository meant to be forked
+# Purpose: notifies each fork (repository_dispatch upstream-updated), whose inbox opens the sync PR
+# Effect: nothing here: sends the notice
+# the PARENT side of a repository meant to be forked: every push to the default branch (not in a fork) sends
+# `repository_dispatch` `upstream-updated` to each of its forks (listed through the GitHub API, nothing to maintain).
+# The fork side, merging the parent into chore/sync-upstream and opening the PR, is the `sync-upstream` job of
+# `Kheona Skill · Inbox` (kskill-inbox.yml), which receives that notice; the Kheona doctor is the safety net (a fork
+# behind its parent with no sync PR is a map rule, whose remedy dispatches that job).
+# Secrets KSKILL_TOKEN_BROKER_URL (the automation App): dispatches to the forks, under any owner (a
+# token per owner, .github/scripts/kskill-app-tokens.mjs; missing: warns, notifies none), found in each owner's
+# installation by their `parent` (the forks listing shows only what the parent owner's token can see).
+# No .kheona.json keys.
+name: Kheona Skill · Sync upstream
+
+on:
+  workflow_call: {}
+
+concurrency:
+  group: kskill-sync-upstream-notify
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  KSKILL_BOT: ${{ vars.KSKILL_BOT }}
+  KSKILL_LIB_REPO: ${{ vars.KSKILL_LIB_REPO }}
+
+jobs:
+  notify:
+    name: Notify the forks
+    # Parent side: a push to main tells every fork right away.
+    if: ${{ !github.event.repository.fork }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      HAS_APP: ${{ vars.KSKILL_TOKEN_BROKER_URL != '' }}
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      - name: Check out
+        if: env.HAS_APP == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The forks may live under other owners: gh gets the token of the owner each command names.
+      - name: Mint a token per owner
+        if: env.HAS_APP == 'true'
+        env:
+          KSKILL_TOKEN_BROKER_URL: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+        run: node "$KSKILL_HOME/.github/scripts/kskill-app-tokens.mjs" "$RUNNER_TEMP/kskill-app" --install
+
+      - name: Notify the forks
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          if [ "$HAS_APP" != true ]; then echo "::warning::Variable KSKILL_TOKEN_BROKER_URL are not set: forks were not notified."; exit 0; fi
+          # GET repos/<this>/forks answers with what this owner's token sees: a private fork under another owner is
+          # missing. So each owner's installation is listed too, with that owner's token (the gh wrapper picks it from
+          # GH_REPO), and its forks whose parent is this repository are kept.
+          forks="$(gh api "repos/$GITHUB_REPOSITORY/forks" --paginate --jq '.[].full_name' || true)"
+          self="$(tr '[:upper:]' '[:lower:]' <<<"$GITHUB_REPOSITORY")"
+          for owner in $(jq -r 'keys[]' "$KSKILL_APP_TOKENS"); do
+            candidates="$(GH_REPO="$owner/-" gh api installation/repositories --paginate \
+              --jq '.repositories[] | select(.fork and (.archived | not)) | .full_name')" ||
+              { echo "::warning::Could not list the repositories of $owner: its forks may be missed."; continue; }
+            for repo in $candidates; do
+              parent="$(gh api "repos/$repo" --jq '.parent.full_name // "" | ascii_downcase' 2>/dev/null || true)"
+              [ "$parent" != "$self" ] || forks="$forks $repo"
+            done
+          done
+          forks="$(tr ' ' '\n' <<<"$forks" | sed '/^$/d' | sort -fu)"
+          if [ -z "$forks" ]; then echo "No fork to notify."; exit 0; fi
+          for fork in $forks; do
+            if gh api "repos/$fork/dispatches" -f event_type=upstream-updated -f "client_payload[sha]=$SHA" --silent; then
+              echo "Notified $fork" | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::warning::Could not notify $fork (no access, or Actions disabled there)."
+            fi
+          done

@@ -1,0 +1,5 @@
+{
+  "$comment": "The opt-in topics and their accepted spellings. A repository is in a topic's scope when it carries any of its names; the first is the one the doctor adds. Read by scripts/kskill-repos.sh, scripts/kskill-repo-settings.sh and tools/map/collect.mjs.",
+  "kheona-skill": ["kheona-skill", "kskill"],
+  "kheona-lib": ["kheona-lib", "klib"]
+}

@@ -1,0 +1,41 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# A short-lived GitHub App token from the token broker (terraform/token-broker): the workflow proves who it is with its
+# GitHub OIDC identity, so no App key reaches any repository. The job needs `id-token: write`.
+name: Kheona Skill · Token
+description: Exchange this job's OIDC identity for an App token.
+
+inputs:
+  broker-url:
+    description: vars.KSKILL_TOKEN_BROKER_URL.
+    required: true
+  repository:
+    description: owner/name when the token is for another repository the broker allows (a fork's parent). Default, this repository.
+    required: false
+    default: ''
+  shared:
+    description: "'true': the read-only token for the repositories the broker's policy shares with this owner."
+    required: false
+    default: 'false'
+  permissions:
+    description: 'JSON object of permissions, for example {"contents":"read"}. Default, what the broker allows.'
+    required: false
+    default: ''
+
+outputs:
+  token:
+    description: The token, masked.
+    value: ${{ steps.mint.outputs.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Ask the broker
+      id: mint
+      shell: bash
+      env:
+        KSKILL_TOKEN_BROKER_URL: ${{ inputs.broker-url }}
+        KSKILL_TOKEN_REPOSITORY: ${{ inputs.repository }}
+        KSKILL_TOKEN_SHARED: ${{ inputs.shared }}
+        KSKILL_TOKEN_PERMISSIONS: ${{ inputs.permissions }}
+      run: bash "$GITHUB_ACTION_PATH/../../scripts/kskill-token.sh"

@@ -1,0 +1,25 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Trigger: every pull request and push to main
+# Purpose: run the shared deploy from a caller inside this repository, so its path is tested before each release
+# Effect: none: dry_run stops before anything is built, pushed or rolled out
+name: Self-test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  deploy-dry-run:
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    uses: ./.github/workflows/kskill-deploy.yml
+    with:
+      stack: node
+      gate: false
+      dry_run: true

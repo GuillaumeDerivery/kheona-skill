@@ -1,0 +1,64 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Trigger: called by every workflow that needs the gate
+# Purpose: one name for the gate, whatever the stack
+# Effect: none of its own: runs the stack's CI
+name: Kheona Skill · CI
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        description: node, python, flutter or infra.
+        type: string
+        required: true
+      called:
+        type: boolean
+        default: false
+      image:
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  node:
+    if: inputs.stack == 'node'
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/kskill-ci-node.yml
+    with:
+      image: ${{ inputs.image }}
+      called: ${{ inputs.called }}
+
+  python:
+    if: inputs.stack == 'python'
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/kskill-ci-python.yml
+    with:
+      image: ${{ inputs.image }}
+
+  flutter:
+    if: inputs.stack == 'flutter'
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/kskill-ci-flutter.yml
+    with:
+      image: ${{ inputs.image }}
+
+  infra:
+    if: inputs.stack == 'infra'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/kskill-ci-infra.yml
+    with:
+      image: ${{ inputs.image }}
+

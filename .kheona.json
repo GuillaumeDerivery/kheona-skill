@@ -1,0 +1,21 @@
+{
+  "role": "library",
+  "workflows": {
+    "cd": {
+      "platform": "linux/arm64",
+      "staging": {
+        "ecrRepository": "example-app",
+        "region": "eu-west-1",
+        "cluster": "example-cluster",
+        "namespace": "example-staging",
+        "deployments": ["example-app"]
+      }
+    },
+    "local": {
+      "ci.yml": "this repository's own gate",
+      "self-test.yml": "runs the shared workflows from inside, dry run",
+      "guard.yml": "the Rule 0 check",
+      "scorecard.yml": "OpenSSF Scorecard"
+    }
+  }
+}

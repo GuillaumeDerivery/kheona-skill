@@ -1,0 +1,109 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Trigger: a push to main (a merged PR)
+# Purpose: the gate once (a green PR run of the same tree reused), the staging deploy, the release PR to prod
+# Effect: deploys staging; opens or updates the release PR kskill/release
+# Everything a push to `main` starts in a service (Node or Python, a template included), in one run . Installed as `.github/workflows/kskill-main.yml` (the stack-neutral path, like kskill-ci.yml).
+#   1. CI: the stack's gate, `.github/workflows/kskill-ci.yml`, called once. A green `Kheona Skill · PR` run of the same
+#      tree (a squash merge of an up-to-date PR) is reused: only its first job runs (kskill-tested-tree.sh).
+#   2. Staging: `.github/workflows/kskill-deploy.yml` (`gate: false`: it needs this run's CI), where
+#      `workflows.cd.staging` is set (skipped before any runner where the Actions variable KSKILL_CD_STAGING is "false").
+#   3. The release PR kskill/release -> prod (actions/kskill-release-pr), in parallel: it ships nothing.
+# Production is `Kheona Skill · CD · Push to prod and deploy` (kskill-ship.yml) on a push to `prod`. Never runs from a pull request.
+# Variable: KSKILL_TOKEN_BROKER_URL (the token broker), and the deploy's (AWS_ACCESS_KEY_ID,
+# AWS_SECRET_ACCESS_KEY, SLACK_WEBHOOK_URL), all passed on.
+# No .kheona.json keys of its own: the deploy's `workflows.cd` and the release PR's `workflows.release`.
+name: Kheona Skill · Main
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        description: node, python, flutter or infra (written by the setup command).
+        type: string
+        required: true
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      SLACK_WEBHOOK_URL:
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  KSKILL_BOT: ${{ vars.KSKILL_BOT }}
+  KSKILL_LIB_REPO: ${{ vars.KSKILL_LIB_REPO }}
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/kskill-ci.yml
+    # The staging deploy builds the image; the gate builds it only where no staging deploy follows.
+    with:
+      stack: ${{ inputs.stack }}
+      image: ${{ vars.KSKILL_CD_STAGING == 'false' }}
+    permissions:
+      contents: read
+      actions: read            # the tested-tree lookup: a green PR run of this tree is reused (kskill-tested-tree.sh)
+
+  staging:
+    name: Staging
+    needs: ci
+    if: vars.KSKILL_CD_STAGING != 'false'
+    uses: ./.github/workflows/kskill-deploy.yml
+    with:
+      stack: ${{ inputs.stack }}
+      gate: false
+    permissions:
+      contents: read
+      actions: read
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # the draft release PR kskill/release -> prod (actions/kskill-release-pr). Skipped before any runner where it
+  # is off (the Actions variable KSKILL_RELEASE_PR, written from .kheona.json by kheona-skill's kskill-repo-settings.sh).
+  release-pr:
+    name: Open or update the release PR
+    if: vars.KSKILL_RELEASE_PR != 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # One at a time, a newer run superseding an older one (main's push, prod's, the doctor's daily refresh).
+    concurrency:
+      group: kskill-release-pr
+      cancel-in-progress: true
+    # Every write goes through the App token; the job's own token only reads.
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      HAS_APP: ${{ vars.KSKILL_TOKEN_BROKER_URL != '' }}
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      # the App's token for this repository alone: a push, PR or merge made with it starts workflows.
+      - name: Mint the App token
+        id: app
+        if: env.HAS_APP == 'true'
+        uses: $/.github/actions/kskill-token
+        with:
+          broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+
+      # main, whatever pushed: the script and the settings are main's, and a push to prod may predate them.
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ steps.app.outputs.token || github.token }}
+
+      - name: Prepare the release PR
+        uses: $/.github/actions/kskill-release-pr
+        with:
+          token: ${{ steps.app.outputs.token }}
+          github-token: ${{ github.token }}

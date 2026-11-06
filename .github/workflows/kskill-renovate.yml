@@ -1,0 +1,164 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+name: Kheona Skill · Renovate
+
+# Trigger: the doctor's daily dispatch; by hand
+# Purpose: self-hosted Renovate over every repository with the topic kheona-skill
+# Effect: opens, rebases and merges dependency PRs in those repositories
+# self-hosted Renovate updates the dependencies of every repository with the topic `kheona-skill` (forks excluded:
+# they receive updates through their upstream sync) and of kheona-skill itself. No schedule: the Kheona doctor
+# dispatches it daily (); by hand too (dry_run: Renovate's `dryRun: full`, nothing written).
+# A repository is processed only when it carries a renovate.json (the setup command adds it); that file extends
+# renovate/default.json here, the policy. Which repositories, lib's rule 1 (a lib consumer leaves lib's
+# packages to the inbox's bump-lib job): scripts/kskill-renovate-plan.sh, from scripts/kskill-repos.sh.
+# Tokens: the automation App. One Renovate run per owner (an installation token reaches one owner), with a
+# read-only token for $KSKILL_REPO (the preset) and lib (the submodule a `file:` dependency needs).
+# Renovate pushes, opens and merges with the App token, so CI runs on its branches and the merge's push starts the
+# default branch's workflows. Secrets: KSKILL_TOKEN_BROKER_URL.
+on:
+  workflow_call:
+    inputs:
+      dry_run:
+        description: 'Renovate''s dryRun full: everything resolved and logged, no branch, PR or merge'
+        type: boolean
+        default: false
+      repositories:
+        description: Only these repositories (space-separated owner/repo); empty means every one
+        default: ''
+        type: string
+
+concurrency:
+  group: kheona-renovate
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  KSKILL_BOT: ${{ vars.KSKILL_BOT }}
+  KSKILL_LIB_REPO: ${{ vars.KSKILL_LIB_REPO }}
+
+jobs:
+  plan:
+    name: Plan the runs
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      owners: ${{ steps.plan.outputs.owners }}
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      - name: Require the App secrets
+        env:
+          BROKER: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+        run: |
+          if [ -z "$BROKER" ]; then
+            echo "::error::Variable KSKILL_TOKEN_BROKER_URL is not set: Renovate runs with its tokens."
+            exit 1
+          fi
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Mint a token per owner
+        env:
+          KSKILL_TOKEN_BROKER_URL: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+        run: node "$KSKILL_HOME/.github/scripts/kskill-app-tokens.mjs" "$RUNNER_TEMP/kskill-app"
+
+      # One configuration per owner: its repositories, lib's rule 1. No token in them.
+      - name: Plan
+        id: plan
+        env:
+          KSKILL_APP_TOKENS: ${{ runner.temp }}/kskill-app/tokens.json
+          REPOSITORIES: ${{ inputs.repositories }}
+          DRY_RUN: ${{ inputs.dry_run && 'full' || '' }}
+        run: |
+          bash scripts/kskill-renovate-plan.sh "$RUNNER_TEMP/renovate" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "owners=$(cat "$RUNNER_TEMP/renovate/owners.json")" >> "$GITHUB_OUTPUT"
+          rm -rf "$RUNNER_TEMP/kskill-app"
+
+      - name: Keep the configurations
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: renovate-config
+          path: ${{ runner.temp }}/renovate/renovate-*.json
+          retention-days: 7
+
+  renovate:
+    name: Renovate ${{ matrix.owner }}
+    needs: plan
+    if: needs.plan.outputs.owners != '[]'
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        owner: ${{ fromJSON(needs.plan.outputs.owners) }}
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      - name: Download the configuration
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: renovate-config
+          path: ${{ runner.temp }}/renovate
+
+      # The owner's installation token: Renovate's platform token (branches, PRs, merges).
+      - name: Mint the owner's token
+        id: owner
+        uses: $/.github/actions/kskill-token
+        with:
+          broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+          repository: ${{ matrix.owner }}/
+
+      # Read-only, $KSKILL_REPO (the preset) and the library repository (the submodule).
+      - name: Mint the library token
+        id: shared
+        uses: $/.github/actions/kskill-token
+        with:
+          broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+          shared: 'true'
+          permissions: '{"contents": "read"}'
+
+      # Renovate's host rules give the read-only token to the preset's and lib's URLs only; git clones the lib
+      # submodule through these insteadOf entries (the longest prefix wins over Renovate's own for github.com).
+      - name: Hand the tokens to Renovate
+        env:
+          SHARED: ${{ steps.shared.outputs.token }}
+        run: |
+          {
+            echo "RENOVATE_HOST_RULES=$(jq -nc --arg t "$SHARED" '[
+              {matchHost: "https://api.github.com/repos/$KSKILL_REPO/", hostType: "github", token: $t},
+              {matchHost: "https://github.com/the library repository", hostType: "github", token: $t}]')"
+            echo "GIT_CONFIG_COUNT=2"
+            echo "GIT_CONFIG_KEY_0=url.https://x-access-token:${SHARED}@github.com/the library repository.insteadOf"
+            echo "GIT_CONFIG_VALUE_0=git@github.com:the library repository"
+            echo "GIT_CONFIG_KEY_1=url.https://x-access-token:${SHARED}@github.com/the library repository.insteadOf"
+            echo "GIT_CONFIG_VALUE_1=https://github.com/the library repository"
+          } >> "$GITHUB_ENV"
+
+      - name: Run Renovate
+        uses: renovatebot/github-action@f0f41e5f2e706165f6814b1d0f0d0e319de7d1d9 # v46.3.8
+        env:
+          LOG_LEVEL: ${{ inputs.dry_run && 'debug' || 'info' }}
+        with:
+          token: ${{ steps.owner.outputs.token }}
+          configurationFile: ${{ runner.temp }}/renovate/renovate-${{ matrix.owner }}.json
+          renovate-version: "44.149.0"
+          additional-env-list: |
+            GIT_CONFIG_COUNT
+            GIT_CONFIG_KEY_0
+            GIT_CONFIG_VALUE_0
+            GIT_CONFIG_KEY_1
+            GIT_CONFIG_VALUE_1

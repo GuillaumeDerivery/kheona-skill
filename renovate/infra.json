@@ -1,0 +1,101 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "The Kheona policy for a role: infra repository (Terraform under terraform/, Kubernetes manifests under eks/<namespace>/): applying is manual (terraform apply, kubectl apply), so nothing merges automatically (renovate/no-automerge). Third-party images, Terraform providers and modules get the weekly minor/patch PR, majors the draft; the cert-manager and ingress-nginx release manifests a draft each, to be replaced by the release's file; the apps' own images, whose tags the deploy pipelines write, are never touched. End of support (the EKS version, the manifests, the AWS provider's major) is map rule MR-36 (doctor/support.mjs), not Renovate's.",
+  "extends": [
+    "github>GuillaumeDerivery/kheona-skill//renovate/no-automerge"
+  ],
+  "kubernetes": {
+    "description": "Renovate's kubernetes manager has no default file pattern: every manifest under eks/ (backup/ and other copies are not applied, so not updated).",
+    "managerFilePatterns": [
+      "/^eks/.+\\.ya?ml$/"
+    ]
+  },
+  "customManagers": [
+    {
+      "description": "cert-manager is applied from its release manifest (eks/cert-manager/cert-manager.yaml, CRDs included): its version label, one per object, follows the GitHub release; the images inside move with the file (the rule below keeps the kubernetes manager off them).",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^eks/cert-manager/[^/]+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "app\\.kubernetes\\.io/version:\\s*\"?(?<currentValue>v\\d+\\.\\d+\\.\\d+)\"?"
+      ],
+      "depNameTemplate": "cert-manager/cert-manager",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "description": "ingress-nginx is applied from its release manifest (eks/ingress-nginx/deploy.yaml): its version label follows the controller releases (tags controller-vX.Y.Z; the repository also tags helm-chart-*). Archived upstream since 2026-03: no new release is expected, MR-36 reports the retirement.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^eks/ingress-nginx/[^/]+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "app\\.kubernetes\\.io/version:\\s*\"?v?(?<currentValue>\\d+\\.\\d+\\.\\d+)\"?"
+      ],
+      "depNameTemplate": "kubernetes/ingress-nginx",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^controller-v(?<version>\\d+\\.\\d+\\.\\d+)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "The apps' own images: a tag that is a commit SHA (or latest) is written by each app's deploy pipeline, never by Renovate; the owner's ECR registry holds only those.",
+      "matchManagers": [
+        "kubernetes"
+      ],
+      "matchCurrentValue": "/^([0-9a-f]{7,40}|latest)$/",
+      "enabled": false
+    },
+    {
+      "matchManagers": [
+        "kubernetes"
+      ],
+      "matchPackageNames": [
+        "/^\\d+\\.dkr\\.ecr\\.[a-z0-9-]+\\.amazonaws\\.com\\//"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "The images of a release manifest move with the manifest (the custom managers above), never one by one: a controller ahead of its CRDs and webhooks breaks the release.",
+      "matchManagers": [
+        "kubernetes"
+      ],
+      "matchFileNames": [
+        "eks/cert-manager/**",
+        "eks/ingress-nginx/**"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "A release manifest's update is a draft of its own: Renovate moves only the version labels, a person replaces the file with the release's and applies it.",
+      "matchDepNames": [
+        "cert-manager/cert-manager"
+      ],
+      "groupName": "cert-manager release manifest",
+      "groupSlug": "cert-manager-manifest",
+      "draftPR": true,
+      "automerge": false,
+      "labels": [
+        "dependencies"
+      ],
+      "prBodyNotes": [
+        "This PR moves only the version labels. Replace the manifest with the release's (cert-manager: `curl -fsSL https://github.com/cert-manager/cert-manager/releases/download/{{newVersion}}/cert-manager.yaml -o eks/cert-manager/cert-manager.yaml`; ingress-nginx: the release's `deploy/static/provider/aws/deploy.yaml`), read the release notes, apply it, then mark the PR ready."
+      ]
+    },
+    {
+      "matchDepNames": [
+        "kubernetes/ingress-nginx"
+      ],
+      "groupName": "ingress-nginx release manifest",
+      "groupSlug": "ingress-nginx-manifest",
+      "draftPR": true,
+      "automerge": false,
+      "labels": [
+        "dependencies"
+      ],
+      "prBodyNotes": [
+        "This PR moves only the version labels. Replace the manifest with the release's (cert-manager: `curl -fsSL https://github.com/cert-manager/cert-manager/releases/download/{{newVersion}}/cert-manager.yaml -o eks/cert-manager/cert-manager.yaml`; ingress-nginx: the release's `deploy/static/provider/aws/deploy.yaml`), read the release notes, apply it, then mark the PR ready."
+      ]
+    }
+  ]
+}

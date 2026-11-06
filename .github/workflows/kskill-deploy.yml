@@ -1,0 +1,365 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Trigger: called by Kheona Skill · Main (staging) and Ship (production); by hand
+# Purpose: builds the image, pushes it to ECR and rolls it out on EKS, after the gate
+# Effect: deploys staging or production
+# Deploys a backend container (Node or Python) to AWS ECR + EKS. Called, never started by a push of its own:
+# `Kheona Skill · Main` (kskill-main.yml) on a push to `main` deploys STAGING, after its own gate (`gate: false` here);
+# `Kheona Skill · CD · Push to prod and deploy` (kskill-ship.yml) on a push to `prod` deploys PRODUCTION with this file's full gate:
+# shipping is the release PR's `ship` label, or `git fetch origin && git push origin origin/main:prod`, and `prod`
+# only fast-forwards. By hand: workflow_dispatch with an environment; `prod` is refused from any ref but `prod`.
+# The gate runs first and the deploy `needs:` it: `uses: ./.github/workflows/kskill-ci.yml`, the stack's
+# `Kheona Skill · CI` template installed under that stack-neutral name (a `uses:` path cannot be read from a file).
+# On `main` the gate reuses a green `Kheona Skill · PR` run of the same tree (kskill-tested-tree.sh: a squash merge of
+# an up-to-date PR), so staging deploys without testing that tree twice; on `prod` it always runs in full. The image is
+# built by the deploy itself either way, so a broken Dockerfile fails before anything is rolled out.
+# Never runs from a pull request (no such trigger, and the deploy job also refuses one). No paths-ignore.
+# The image is tagged with the full commit SHA and deployed by that tag, the rollout is waited on, what the
+# cluster runs is read back into the run summary: .github/actions/kskill-deploy-eks.
+# Inert without a runner: where the Actions variable KSKILL_CD_STAGING (or KSKILL_CD_PROD) is "false", the run's jobs
+# are skipped by their `if:` before any runner starts (a template, an environment set to false, workflows.cd.enabled
+# false: a service every repository with the Node or Python stack carries this file for, deployed or not). kheona-skill's
+# scripts/kskill-repo-settings.sh writes those variables from this file's `.kheona.json` keys; unset, the
+# settings job reads `.kheona.json` as before. The settings job runs first and the gate only when it found something
+# to deploy: a missing setting fails in seconds and spends no gate minutes.
+#
+# Secrets: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (required to deploy); KSKILL_TOKEN_BROKER_URL (GitHub
+# the token broker, required: the gate's repository check, and the private lib submodule); SLACK_WEBHOOK_URL (optional: no
+# message without it). All are passed to the gate (inherit).
+#
+# .kheona.json `workflows.cd` (a missing key means the default):
+#   templateRepository  string   ""  "owner/repo" of a template that never deploys itself: there the run is
+#                                    skipped; its forks inherit the value and deploy.
+#   platform            string   "linux/arm64"  the one architecture the image is built for: linux/arm64 or
+#                                    linux/amd64. The build runs on that architecture's own runner (ubuntu-24.04-arm,
+#                                    ubuntu-24.04): never emulated . The older key
+#                                    `platforms` is read when it names one platform; a list of several fails.
+#   rolloutTimeout      string   "5m"           kubectl rollout status timeout per deployment
+#   environmentVariable string   ""  when set (e.g. "ENVIRONMENT"), set to "staging"/"prod" on every deployment
+#   staging, prod       object | false   required: the environment's targets, or false = this repo has none
+#                                         (a push that would deploy it then skips with a notice). Missing = error.
+#     ecrRepository     string   required  ECR repository name
+#     region            string   required  AWS region (ECR and EKS)
+#     cluster           string   required  EKS cluster name
+#     namespace         string   required unless `targets`  Kubernetes namespace
+#     buildArgs         object   {}  Docker build arguments for this environment, {"NAME": "value"} (a front end
+#                                    that bakes its URLs in at build time). With them the two environments build
+#                                    different images, so each needs its own ecrRepository (checked).
+#     deployments       string[] []        deployments to set (container name = deployment name)
+#     cronjobs          string[] []        cron jobs to set (container name = cron job name)
+#     targets           array    [{namespace, deployments, cronjobs}] from the three keys above; use it instead
+#                                when one environment spans several namespaces
+#     healthcheckUrl    string   ""  off when empty; else must answer 2xx after the rollout, and a JSON `commit`
+#                                    must be this SHA (lib-based Node services: GET /healthcheck)
+#     slackLabel        string   "[Staging][Api]" / "[Prod][Api]"  prefix of the Slack messages
+name: Kheona Skill · CD · Build, push and deploy
+# Run title, for a run started by hand: a call from Main or Ship runs inside the caller's run, under its title.
+run-name: Build, push and deploy to ${{ inputs.environment }}
+
+on:
+  workflow_call:
+    inputs:
+      gate:
+        description: Run this file's gate (kskill-ci.yml) first; false only where the caller ran it (kskill-main.yml).
+        type: boolean
+        default: true
+      environment:
+        description: The environment, for a caller's workflow_dispatch (staging, or prod from the prod branch).
+        type: string
+        default: ''
+      stack:
+        description: node, python, flutter or infra (written by the setup command).
+        type: string
+        required: true
+      dry_run:
+        description: Stop before anything is built, pushed or rolled out (the self-test).
+        type: boolean
+        default: false
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      SLACK_WEBHOOK_URL:
+        required: false
+
+concurrency:
+  group: kskill-deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref == 'refs/heads/prod' && 'prod' || 'staging') }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  KSKILL_BOT: ${{ vars.KSKILL_BOT }}
+  KSKILL_LIB_REPO: ${{ vars.KSKILL_LIB_REPO }}
+
+jobs:
+  # Runs before the gate so a missing setting or secret fails in seconds, not after the tests.
+  plan:
+    name: Read the deploy settings
+    # The environment as the settings step works it out; skipped (no runner) where its variable says it is off.
+    if: >-
+      ((github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref == 'refs/heads/prod' && 'prod' || 'staging')) != 'prod'
+        && vars.KSKILL_CD_STAGING != 'false') ||
+      ((github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref == 'refs/heads/prod' && 'prod' || 'staging')) == 'prod'
+        && vars.KSKILL_CD_PROD != 'false')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      deploy: ${{ steps.read.outputs.deploy }}
+      environment: ${{ steps.read.outputs.environment }}
+      ecr-repository: ${{ steps.read.outputs.ecr-repository }}
+      region: ${{ steps.read.outputs.region }}
+      cluster: ${{ steps.read.outputs.cluster }}
+      targets: ${{ steps.read.outputs.targets }}
+      platform: ${{ steps.read.outputs.platform }}
+      runner: ${{ steps.read.outputs.runner }}
+      build-args: ${{ steps.read.outputs.build-args }}
+      rollout-timeout: ${{ steps.read.outputs.rollout-timeout }}
+      environment-variable: ${{ steps.read.outputs.environment-variable }}
+      healthcheck-url: ${{ steps.read.outputs.healthcheck-url }}
+      slack-label: ${{ steps.read.outputs.slack-label }}
+      aws-role-arn: ${{ steps.read.outputs.aws-role-arn }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read .kheona.json
+        id: read
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_ENV: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          out() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
+          skip() { echo "::notice::$1"; echo "Deploy skipped: $1" >> "$GITHUB_STEP_SUMMARY"; out deploy false; exit 0; }
+          fail() { echo "::error::$1"; exit 1; }
+          f=.kheona.json
+          [ -f "$f" ] || fail "$f is missing: the deploy settings live under workflows.cd (see this file's header)."
+          jq -e . "$f" > /dev/null || fail "$f is not valid JSON."
+
+          [ "$(jq -r '.workflows.cd.enabled' "$f")" != false ] || skip "workflows.cd.enabled is false: this repository deploys nothing here."
+          template=$(jq -r '.workflows.cd.templateRepository // empty' "$f")
+          if [ "$template" = "$GITHUB_REPOSITORY" ]; then
+            skip "$GITHUB_REPOSITORY is a template (workflows.cd.templateRepository): nothing deploys here."
+          fi
+
+          case "$EVENT:$GITHUB_REF" in
+            push:refs/heads/main) env=staging ;;
+            push:refs/heads/prod) env=prod ;;
+            workflow_dispatch:*) env="$INPUT_ENV" ;;
+            *) fail "Unexpected trigger $EVENT on $GITHUB_REF." ;;
+          esac
+          # production ships only from the release branch, by hand as well.
+          if [ "$env" = prod ] && [ "$GITHUB_REF" != refs/heads/prod ]; then
+            fail "Production deploys only from the prod branch (this run is on $GITHUB_REF). Ship with: git push origin origin/main:prod"
+          fi
+          out environment "$env"
+
+          kind=$(jq -r --arg e "$env" '.workflows.cd[$e] | type' "$f")
+          case "$kind" in
+            boolean)
+              [ "$(jq -r --arg e "$env" '.workflows.cd[$e]' "$f")" = false ] || fail "workflows.cd.$env must be an object or false."
+              skip "workflows.cd.$env is false: this repository has no $env environment." ;;
+            object) ;;
+            null) fail "workflows.cd.$env is missing in $f. Set its targets, or false if this repository has no $env." ;;
+            *) fail "workflows.cd.$env must be an object or false (found $kind)." ;;
+          esac
+
+          name_re='^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$'
+          get() { jq -r --arg e "$env" ".workflows.cd[\$e].$1 // empty" "$f"; }
+          bad=0
+          for key in ecrRepository region cluster; do
+            value=$(get "$key")
+            if [ -z "$value" ] || [[ "$value" =~ ^(REPO|REGION|CLUSTER|NAMESPACE|REPLACE_ME)$ ]]; then
+              echo "::error::workflows.cd.$env.$key is empty or a placeholder ('$value')."; bad=1
+            elif ! [[ "$value" =~ ^[a-z0-9][-a-z0-9_./]*$ ]]; then
+              echo "::error::workflows.cd.$env.$key has unexpected characters ('$value')."; bad=1
+            fi
+          done
+          targets=$(jq -c --arg e "$env" '.workflows.cd[$e] as $b
+            | ($b.targets // [{namespace: $b.namespace, deployments: $b.deployments, cronjobs: $b.cronjobs}])
+            | map({namespace: (.namespace // ""), deployments: (.deployments // []), cronjobs: (.cronjobs // [])})' "$f")
+          if [ "$(jq 'length' <<< "$targets")" = 0 ]; then
+            echo "::error::workflows.cd.$env.targets is empty."; bad=1
+          fi
+          while read -r ns count; do
+            if ! [[ "$ns" =~ $name_re ]] || [[ "$ns" =~ ^(NAMESPACE|REPLACE_ME)$ ]]; then
+              echo "::error::workflows.cd.$env: namespace '$ns' is empty, a placeholder or not a Kubernetes name."; bad=1
+            fi
+            if [ "$count" = 0 ]; then
+              echo "::error::workflows.cd.$env: namespace '$ns' lists no deployment and no cron job."; bad=1
+            fi
+          done < <(jq -r '.[] | "\(.namespace) \((.deployments | length) + (.cronjobs | length))"' <<< "$targets")
+          for name in $(jq -r '.[] | (.deployments + .cronjobs)[]' <<< "$targets"); do
+            [[ "$name" =~ $name_re ]] || { echo "::error::workflows.cd.$env: '$name' is not a Kubernetes name."; bad=1; }
+          done
+
+          # One architecture, built natively: the runner is chosen from it below, and nothing is emulated.
+          platform=$(jq -r '.workflows.cd.platform // .workflows.cd.platforms // "linux/arm64"' "$f")
+          case "$platform" in
+            linux/arm64) runner=ubuntu-24.04-arm ;;
+            linux/amd64) runner=ubuntu-24.04 ;;
+            *,*) echo "::error::workflows.cd.platform ('$platform') lists several platforms: build one, natively (no emulation). Set workflows.cd.platform to linux/arm64 or linux/amd64, the architecture of the cluster's nodes."; bad=1 ;;
+            *) echo "::error::workflows.cd.platform is invalid ('$platform'): linux/arm64 or linux/amd64."; bad=1 ;;
+          esac
+          [ "$(jq -r '.workflows.cd.platforms // empty' "$f")" = "" ] || echo "::notice::workflows.cd.platforms is the older name: rename it to workflows.cd.platform."
+          # Build arguments of this environment: names and one-line values only; different from the other
+          # environment's means a different image, which must not overwrite it under the same tag.
+          build_args=$(jq -c --arg e "$env" '.workflows.cd[$e].buildArgs // {}' "$f")
+          if ! jq -e 'type == "object" and all(to_entries[]; (.key | test("^[A-Za-z_][A-Za-z0-9_]*$")) and (.value | type == "string") and (.value | test("\n") | not))' <<< "$build_args" > /dev/null; then
+            echo "::error::workflows.cd.$env.buildArgs must be an object of NAME: \"one-line string\"."; bad=1
+          fi
+          other=$([ "$env" = prod ] && echo staging || echo prod)
+          if [ "$(jq -r --arg o "$other" '.workflows.cd[$o] | type' "$f")" = object ] \
+             && [ "$(jq -c --arg o "$other" '.workflows.cd[$o].buildArgs // {}' "$f")" != "$build_args" ] \
+             && [ "$(jq -r --arg o "$other" '.workflows.cd[$o].ecrRepository // empty' "$f")" = "$(get ecrRepository)" ]; then
+            echo "::error::workflows.cd.staging and .prod build different images (buildArgs) into the same ecrRepository: one would overwrite the other's tag. Give each environment its own ecrRepository."; bad=1
+          fi
+          timeout=$(jq -r '.workflows.cd.rolloutTimeout // "5m"' "$f")
+          [[ "$timeout" =~ ^[0-9]+[smh]$ ]] || { echo "::error::workflows.cd.rolloutTimeout is invalid ('$timeout')."; bad=1; }
+          envvar=$(jq -r '.workflows.cd.environmentVariable // empty' "$f")
+          [ -z "$envvar" ] || [[ "$envvar" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo "::error::workflows.cd.environmentVariable is invalid ('$envvar')."; bad=1; }
+          health=$(get healthcheckUrl)
+          [ -z "$health" ] || [[ "$health" =~ ^https?://[^[:space:]]+$ ]] || { echo "::error::workflows.cd.$env.healthcheckUrl is not an http(s) URL."; bad=1; }
+          if [ "$env" = prod ]; then default_label='[Prod][Api]'; else default_label='[Staging][Api]'; fi
+          label=$(get slackLabel); label="${label:-$default_label}"
+          [ "$bad" = 0 ] || exit 1
+
+          out deploy true
+          out ecr-repository "$(get ecrRepository)"
+          out region "$(get region)"
+          out cluster "$(get cluster)"
+          out targets "$targets"
+          out platform "$platform"
+          # Native builds : emulating arm64 on an amd64 runner took ~27 min per image.
+          out runner "$runner"
+          out build-args "$build_args"
+          out rollout-timeout "$timeout"
+          out environment-variable "$envvar"
+          out healthcheck-url "$health"
+          out slack-label "$label"
+          out aws-role-arn "$(jq -r --arg e "$environment" '.workflows.cd[$e].awsRoleArn // empty' .kheona.json)"
+
+      # names only, never a value.
+      - name: Check the secrets
+        if: steps.read.outputs.deploy == 'true' && !inputs.dry_run
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          KSKILL_TOKEN_BROKER_URL: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+          AWS_ROLE_ARN: ${{ steps.read.outputs.aws-role-arn }}
+        run: |
+          bad=0
+          required=""
+          [ -n "$AWS_ROLE_ARN" ] || required="AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY"
+          [ -n "$KSKILL_TOKEN_BROKER_URL" ] || { echo "::error::Variable KSKILL_TOKEN_BROKER_URL is not set."; bad=1; }
+          for name in $required; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Secret $name is not set (Settings > Secrets and variables > Actions)."
+              bad=1
+            fi
+          done
+          exit "$bad"
+
+  # nothing deploys from a commit that has not passed the gate: this one, or the caller's (`gate: false`,
+  # kskill-main.yml, whose deploy job `needs:` its own gate; a dispatch has no `gate` input and always runs it).
+  # toJSON, not `!= false`: GitHub compares loosely, and a dispatch's missing input (null) equals false.
+  ci:
+    name: Run the gate
+    needs: plan
+    if: needs.plan.outputs.deploy == 'true' && toJSON(inputs.gate) != 'false'
+    uses: ./.github/workflows/kskill-ci.yml
+    # The deploy job builds the image itself, before any rollout: the gate does not build it twice.
+    with:
+      stack: ${{ inputs.stack }}
+      image: false
+    permissions:
+      contents: read
+      actions: read            # the gate reuses a green PR run of the same tree on main (kskill-tested-tree.sh)
+
+  deploy:
+    name: Deploy to ${{ needs.plan.outputs.environment }}
+    needs: [plan, ci]
+    if: >-
+      !cancelled() && github.event_name != 'pull_request' && needs.plan.result == 'success' && needs.plan.outputs.deploy == 'true' &&
+      (needs.ci.result == 'success' || (needs.ci.result == 'skipped' && toJSON(inputs.gate) == 'false'))
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ${{ needs.plan.outputs.runner }}
+    timeout-minutes: 45
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      SLACK_LABEL: ${{ needs.plan.outputs.slack-label }}
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      - name: Announce the start on Slack
+        if: env.SLACK_WEBHOOK_URL != '' && !inputs.dry_run
+        continue-on-error: true
+        run: |
+          jq -n --arg t "$SLACK_LABEL Starts deploying ${GITHUB_SHA:0:7} (${GITHUB_REPOSITORY})..." '{text: $t}' \
+            | curl -fsS --max-time 10 -H 'Content-Type: application/json' -d @- "$SLACK_WEBHOOK_URL"
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Read-only, the library repository (a private submodule).
+      - name: Mint the library token
+        id: shared
+        if: hashFiles('.gitmodules') != ''
+        uses: $/.github/actions/kskill-token
+        with:
+          broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+          shared: 'true'
+          permissions: '{"contents": "read"}'
+
+      # Over HTTPS with the read-only token, given to git for that command only: .gitmodules is never modified and the
+      # token is not left in the working tree.
+      - name: Check out the submodules
+        if: hashFiles('.gitmodules') != ''
+        env:
+          SUBMODULE_TOKEN: ${{ steps.shared.outputs.token }}
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-checkout-submodules.sh"
+
+      - name: Stop here on a dry run
+        if: inputs.dry_run
+        run: echo "Dry run, nothing built or pushed. Target $ENVIRONMENT."
+        env:
+          ENVIRONMENT: ${{ needs.plan.outputs.environment }}
+
+      - name: Build and deploy
+        if: ${{ !inputs.dry_run }}
+        uses: $/.github/actions/kskill-deploy-eks
+        with:
+          role-arn: ${{ needs.plan.outputs.aws-role-arn }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          region: ${{ needs.plan.outputs.region }}
+          cluster: ${{ needs.plan.outputs.cluster }}
+          ecr-repository: ${{ needs.plan.outputs.ecr-repository }}
+          targets: ${{ needs.plan.outputs.targets }}
+          platform: ${{ needs.plan.outputs.platform }}
+          build-args: ${{ needs.plan.outputs.build-args }}
+          environment-name: ${{ needs.plan.outputs.environment }}
+          environment-variable: ${{ needs.plan.outputs.environment-variable }}
+          rollout-timeout: ${{ needs.plan.outputs.rollout-timeout }}
+          healthcheck-url: ${{ needs.plan.outputs.healthcheck-url }}
+
+      - name: Announce the result on Slack
+        if: always() && env.SLACK_WEBHOOK_URL != '' && !inputs.dry_run
+        continue-on-error: true
+        env:
+          STATUS: ${{ job.status }}
+        run: |
+          if [ "$STATUS" = success ]; then text="$SLACK_LABEL Published ${GITHUB_SHA:0:7} !"; else text="$SLACK_LABEL Deploy of ${GITHUB_SHA:0:7} ended: $STATUS"; fi
+          text="$text ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          jq -n --arg t "$text" '{text: $t}' \
+            | curl -fsS --max-time 10 -H 'Content-Type: application/json' -d @- "$SLACK_WEBHOOK_URL"

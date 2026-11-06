@@ -1,0 +1,407 @@
+{
+  "kskill-claude.yml": {
+    "caller": "kskill-claude.yml",
+    "dispatchInputs": [],
+    "events": {
+      "issue_comment": {
+        "types": [
+          "created"
+        ]
+      },
+      "pull_request_review_comment": {
+        "types": [
+          "created"
+        ]
+      }
+    },
+    "inputTypes": {},
+    "name": "Kheona Skill · Claude",
+    "permissions": {
+      "contents": "read",
+      "id-token": "write",
+      "issues": "read",
+      "pull-requests": "read"
+    },
+    "secrets": [
+      "CLAUDE_CODE_OAUTH_TOKEN"
+    ],
+    "stack": false
+  },
+  "kskill-deliver-flutter.yml": {
+    "caller": "kskill-deliver.yml",
+    "dispatchInputs": [],
+    "events": {
+      "workflow_dispatch": {}
+    },
+    "inputTypes": {},
+    "name": "Kheona Skill · Deliver",
+    "permissions": {
+      "actions": "read",
+      "contents": "read",
+      "id-token": "write"
+    },
+    "secrets": [
+      "ANDROID_KEYSTORE_BASE64",
+      "ASC_API_KEY_BASE64",
+      "ASC_ISSUER_ID",
+      "ASC_KEY_ID",
+      "CM_KEYSTORE_PASSWORD",
+      "CM_KEY_ALIAS",
+      "CM_KEY_PASSWORD",
+      "IOS_DIST_CERTIFICATE_P12_BASE64",
+      "IOS_DIST_CERTIFICATE_PASSWORD",
+      "PLAY_STORE_JSON_KEY_BASE64",
+      "SENTRY_AUTH_TOKEN"
+    ],
+    "stack": true
+  },
+  "kskill-deploy.yml": {
+    "caller": "kskill-deploy.yml",
+    "dispatchInputs": [
+      "environment"
+    ],
+    "events": {
+      "workflow_dispatch": {
+        "inputs": {
+          "environment": {
+            "default": "staging",
+            "description": "Environment to deploy (prod only from the prod branch)",
+            "options": [
+              "staging",
+              "prod"
+            ],
+            "type": "choice"
+          }
+        }
+      }
+    },
+    "inputTypes": {
+      "environment": "choice"
+    },
+    "name": "Kheona Skill · CD · Build, push and deploy",
+    "permissions": {
+      "actions": "read",
+      "contents": "read",
+      "id-token": "write"
+    },
+    "secrets": [
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "SLACK_WEBHOOK_URL"
+    ],
+    "stack": true
+  },
+  "kskill-inbox.yml": {
+    "caller": "kskill-inbox.yml",
+    "dispatchInputs": [
+      "job"
+    ],
+    "events": {
+      "repository_dispatch": {
+        "types": [
+          "lib-released",
+          "upstream-updated"
+        ]
+      },
+      "workflow_dispatch": {
+        "inputs": {
+          "job": {
+            "description": "The job to run",
+            "options": [
+              "bump-lib",
+              "sync-upstream",
+              "sentry-triage",
+              "mutation",
+              "refresh-flutter",
+              "security-scan",
+              "release-pr"
+            ],
+            "required": true,
+            "type": "choice"
+          }
+        }
+      }
+    },
+    "inputTypes": {
+      "job": "choice"
+    },
+    "name": "Kheona Skill · Inbox",
+    "permissions": {
+      "actions": "read",
+      "contents": "read",
+      "id-token": "write",
+      "issues": "read"
+    },
+    "secrets": [
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "SENTRY_AUTH_TOKEN"
+    ],
+    "stack": false
+  },
+  "kskill-main-flutter.yml": {
+    "caller": "kskill-main.yml",
+    "dispatchInputs": [],
+    "events": {
+      "push": {
+        "branches": [
+          "main"
+        ]
+      }
+    },
+    "inputTypes": {},
+    "name": "Kheona Skill · Main",
+    "permissions": {
+      "actions": "read",
+      "contents": "read",
+      "id-token": "write"
+    },
+    "secrets": [],
+    "stack": true
+  },
+  "kskill-main-library.yml": {
+    "caller": "kskill-main.yml",
+    "dispatchInputs": [],
+    "events": {
+      "push": {
+        "branches": [
+          "main"
+        ]
+      }
+    },
+    "inputTypes": {},
+    "name": "Kheona Skill · Main",
+    "permissions": {
+      "actions": "read",
+      "contents": "read",
+      "id-token": "write"
+    },
+    "secrets": [],
+    "stack": true
+  },
+  "kskill-main-service.yml": {
+    "caller": "kskill-main.yml",
+    "dispatchInputs": [],
+    "events": {
+      "push": {
+        "branches": [
+          "main"
+        ]
+      }
+    },
+    "inputTypes": {},
+    "name": "Kheona Skill · Main",
+    "permissions": {
+      "actions": "read",
+      "contents": "read",
+      "id-token": "write"
+    },
+    "secrets": [
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "SLACK_WEBHOOK_URL"
+    ],
+    "stack": true
+  },
+  "kskill-pr.yml": {
+    "caller": "kskill-pr.yml",
+    "dispatchInputs": [],
+    "events": {
+      "pull_request": {
+        "types": [
+          "opened",
+          "synchronize",
+          "reopened",
+          "ready_for_review"
+        ]
+      }
+    },
+    "inputTypes": {},
+    "name": "Kheona Skill · PR",
+    "permissions": {
+      "actions": "read",
+      "contents": "read",
+      "id-token": "write",
+      "issues": "read",
+      "pull-requests": "write"
+    },
+    "secrets": [
+      "CLAUDE_CODE_OAUTH_TOKEN"
+    ],
+    "stack": true
+  },
+  "kskill-release-please.yml": {
+    "caller": "kskill-release-please.yml",
+    "dispatchInputs": [],
+    "events": {
+      "push": {
+        "branches": [
+          "main"
+        ]
+      },
+      "workflow_dispatch": {}
+    },
+    "inputTypes": {},
+    "name": "Kheona Skill · Release",
+    "permissions": {
+      "actions": "read",
+      "contents": "read",
+      "id-token": "write",
+      "pull-requests": "read"
+    },
+    "secrets": [],
+    "stack": false
+  },
+  "kskill-renovate.yml": {
+    "caller": "kskill-renovate.yml",
+    "dispatchInputs": [
+      "dry_run",
+      "repositories"
+    ],
+    "events": {
+      "workflow_dispatch": {
+        "inputs": {
+          "dry_run": {
+            "default": false,
+            "description": "Renovate's dryRun full: everything resolved and logged, no branch, PR or merge",
+            "type": "boolean"
+          },
+          "repositories": {
+            "default": "",
+            "description": "Only these repositories (space-separated owner/repo); empty means every one",
+            "required": false
+          }
+        }
+      }
+    },
+    "inputTypes": {
+      "dry_run": "boolean",
+      "repositories": "string"
+    },
+    "name": "Kheona Skill · Renovate",
+    "permissions": {
+      "contents": "read",
+      "id-token": "write"
+    },
+    "secrets": [],
+    "stack": false
+  },
+  "kskill-ship-flutter.yml": {
+    "caller": "kskill-ship.yml",
+    "dispatchInputs": [
+      "ship"
+    ],
+    "events": {
+      "pull_request": {
+        "branches": [
+          "prod"
+        ],
+        "types": [
+          "labeled"
+        ]
+      },
+      "push": {
+        "branches": [
+          "prod"
+        ]
+      },
+      "workflow_dispatch": {
+        "inputs": {
+          "ship": {
+            "default": "",
+            "description": "Ship the open release PR at this head SHA (empty, on prod = run the production delivery again)",
+            "required": false,
+            "type": "string"
+          }
+        }
+      }
+    },
+    "inputTypes": {
+      "ship": "string"
+    },
+    "name": "Kheona Skill · CD · Push to prod and deliver",
+    "permissions": {
+      "actions": "read",
+      "contents": "read",
+      "id-token": "write"
+    },
+    "secrets": [
+      "ANDROID_KEYSTORE_BASE64",
+      "ASC_API_KEY_BASE64",
+      "ASC_ISSUER_ID",
+      "ASC_KEY_ID",
+      "CM_KEYSTORE_PASSWORD",
+      "CM_KEY_ALIAS",
+      "CM_KEY_PASSWORD",
+      "IOS_DIST_CERTIFICATE_P12_BASE64",
+      "IOS_DIST_CERTIFICATE_PASSWORD",
+      "PLAY_STORE_JSON_KEY_BASE64",
+      "SENTRY_AUTH_TOKEN"
+    ],
+    "stack": true
+  },
+  "kskill-ship-service.yml": {
+    "caller": "kskill-ship.yml",
+    "dispatchInputs": [
+      "ship"
+    ],
+    "events": {
+      "pull_request": {
+        "branches": [
+          "prod"
+        ],
+        "types": [
+          "labeled"
+        ]
+      },
+      "push": {
+        "branches": [
+          "prod"
+        ]
+      },
+      "workflow_dispatch": {
+        "inputs": {
+          "ship": {
+            "default": "",
+            "description": "Ship the open release PR at this head SHA (empty, on prod = run the production deploy again)",
+            "required": false,
+            "type": "string"
+          }
+        }
+      }
+    },
+    "inputTypes": {
+      "ship": "string"
+    },
+    "name": "Kheona Skill · CD · Push to prod and deploy",
+    "permissions": {
+      "actions": "read",
+      "contents": "read",
+      "id-token": "write"
+    },
+    "secrets": [
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "SLACK_WEBHOOK_URL"
+    ],
+    "stack": true
+  },
+  "kskill-sync-upstream.yml": {
+    "caller": "kskill-sync-upstream.yml",
+    "dispatchInputs": [],
+    "events": {
+      "push": {
+        "branches": [
+          "main"
+        ]
+      }
+    },
+    "inputTypes": {},
+    "name": "Kheona Skill · Sync upstream",
+    "permissions": {
+      "contents": "read",
+      "id-token": "write"
+    },
+    "secrets": [],
+    "stack": false
+  }
+}

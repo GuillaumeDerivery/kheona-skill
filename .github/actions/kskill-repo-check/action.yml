@@ -1,0 +1,47 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# A step of every CI's first job: what this repository must carry (callers, .kheona.json, renovate.json) and its
+# local rules, then the secret scan. Runs from this version's files, never the repository's, so a repository cannot
+# relax it. Needs the repository checked out at the workspace root.
+name: Kheona Skill · Check the repository
+description: Check the callers, the settings and the committed files.
+
+inputs:
+  broker-url:
+    description: vars.KSKILL_TOKEN_BROKER_URL. Empty fails, naming the variable.
+    required: false
+    default: ''
+  fork:
+    description: github.event.repository.fork.
+    required: false
+    default: 'false'
+  sentry-project:
+    description: "vars.SENTRY_PROJECT (when set, the inbox's sentry-triage job is needed)."
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Require the broker
+      shell: bash
+      env:
+        BROKER: ${{ inputs.broker-url }}
+      run: |
+        if [ -z "$BROKER" ]; then
+          echo "::error::Variable KSKILL_TOKEN_BROKER_URL is not set, or not available to this run (a fork's PR)."
+          exit 1
+        fi
+
+    - name: Check the repository
+      shell: bash
+      env:
+        KSKILL_FORK: ${{ inputs.fork }}
+        KSKILL_SENTRY_PROJECT: ${{ inputs.sentry-project }}
+      run: bash "$KSKILL_HOME/scripts/kskill-repo-check.sh" . "$KSKILL_HOME"
+
+    # No credential in the committed files. Runs even when the check above failed, so one run reports both.
+    - name: Scan the committed files for secrets
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: bash "$KSKILL_HOME/scripts/kskill-secret-scan.sh" .

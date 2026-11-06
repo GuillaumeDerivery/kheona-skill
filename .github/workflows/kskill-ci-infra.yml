@@ -1,0 +1,263 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Trigger: called by Kheona Skill · PR on every pull request; by hand
+# Purpose: the infra gate: repository check, terraform fmt and validate, tflint, trivy config, kubeconform on the manifests
+# Effect: nothing: reports only
+# gate for a `role: infra` repository (Terraform, Kubernetes manifests, secrets under git-crypt), installed as
+# `.github/workflows/kskill-ci.yml`. Called, never triggered by a push of its own: by `Kheona Skill · PR` on every pull
+# request (kskill-pr.yml, any base); by hand. An infra repository has no kskill-main.yml: applying is manual
+# (`terraform apply` from Terraform Cloud or a person, `kubectl apply`), so a push to main deploys nothing and needs no gate.
+# **No `terraform plan` here**: a plan needs the cloud credentials and the state, which a CI run never holds; Terraform
+# Cloud runs the speculative plan of a PR where the workspace is VCS-connected, and a person reads it before applying.
+# It never pushes, applies or writes anything; it only reads. Secrets read: KSKILL_TOKEN_BROKER_URL
+# (the automation App, repository check only).
+#
+# One job, in order: the repository check (actions/kskill-repo-check, with the secret scan), the git-crypt files
+# set aside, then `terraform fmt -check -recursive`; per Terraform root `terraform init -backend=false` and `terraform
+# validate`; `tflint --recursive`; `trivy config` (HIGH and CRITICAL fail; `.trivyignore` at the root honoured, one
+# finding id per line with a `#` reason above it); `kubeconform -strict -ignore-missing-schemas -summary` over the
+# manifests. Each check runs even when an earlier one failed, so one run lists every failure.
+# Terraform version: `.terraform-version` (one exact version), else an exact `required_version` (`1.15.8` or
+# `= 1.15.8`) in a root's `terraform {}` block, never set here; neither fails by name. tflint, trivy and
+# kubeconform at the exact versions below, checksum-verified.
+#
+# git-crypt: CI has no key, by design, so a git-crypt file is checked out as ciphertext (it starts with \0GITCRYPT\0).
+# Each one is set aside in the runner's workspace (never committed) before any check reads it:
+#   - an encrypted *.tf is replaced by an empty file; `terraform validate` then reports every input variable the rest of
+#     its root still references ("Reference to undeclared input variable"), and each is declared once, in a generated
+#     `kskill-ci-undeclared.tf` (`variable "<name>" { type = any }`), before validate runs again. So an encrypted
+#     secrets.tf holding `variable` blocks validates; a resource, a local or an output in an encrypted file fails
+#     validate by name: keep only variables there.
+#   - an encrypted YAML file is left out of kubeconform and trivy.
+#
+# .kheona.json, all optional:
+#   workflows.ci.terraformRoots  array of strings  auto   the Terraform roots; auto: every directory holding a *.tf
+#                                                          file with a `terraform {` block, outside backup/, old-*/ and
+#                                                          .terraform/
+#   workflows.ci.manifests       array of strings  ["eks"] where kubeconform looks for *.yaml/*.yml (backup/ and old-*/
+#                                                          left out, files without a `kind:` line too: Helm values)
+#   workflows.ci.trivyPaths      array of strings  the roots  what `trivy config` scans (add "eks" for the manifests;
+#                                                          the doctor's posture audit already reads their
+#                                                          workloads)
+#   workflows.ci.skip            object  {}        check -> reason it is off. Checks: fmt, validate, tflint, trivy,
+#                                                  kubeconform. The reason is printed in every run's summary.
+#                                                  envFiles, gitCrypt, mongoUri, secretScan turn off the template
+#                                                  check's checks, as in every stack.
+#   infra.eks.version            string  none      kubeconform's Kubernetes version (`1.34`); none: the schemas' master
+name: Kheona Skill · CI
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: The shared kskill-ci.yml interface (the deploy and kskill-main.yml pass it); an infra repository builds no image, so it is ignored.
+        type: boolean
+        default: false
+      called:
+        type: boolean
+        default: false
+      stack:
+        description: The stack, for the job names.
+        type: string
+        default: ''
+
+concurrency:
+  group: kskill-ci-infra-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  KSKILL_BOT: ${{ vars.KSKILL_BOT }}
+  KSKILL_LIB_REPO: ${{ vars.KSKILL_LIB_REPO }}
+
+jobs:
+  check:
+    name: Check the Terraform and the manifests
+    # Not on the release PR (an infra repository has none; kept for every CI's shape).
+    if: github.head_ref != 'kskill/release'
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      TFLINT_VERSION: v0.64.0
+      TFLINT_SHA256: cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537 # tflint_linux_amd64.zip
+      TRIVY_VERSION: 0.76.0
+      TRIVY_SHA256: e24b1c51293c1b15e4ba8d45bbc7891ba053f90278ec2698f3562c993e145fe7 # trivy_<v>_Linux-64bit.tar.gz
+      KUBECONFORM_VERSION: v0.8.0
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883 # kubeconform-linux-amd64.tar.gz
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # every caller as this version expects it, every other workflow declared; then the
+      # secret scan.
+      - name: Check the repository
+        uses: $/.github/actions/kskill-repo-check
+        with:
+          broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+          fork: ${{ github.event.repository.fork }}
+          sentry-project: ${{ vars.SENTRY_PROJECT }}
+
+      - name: Read .kheona.json and the Terraform version
+        id: read
+        run: |
+          fail() { echo "::error file=${2:-.kheona.json}::$1"; exit 1; }
+          cfg='{}'
+          if [ -f .kheona.json ]; then
+            jq empty .kheona.json 2>/dev/null || fail "not valid JSON"
+            cfg=$(jq -c . .kheona.json)
+          fi
+          get() { jq -r "$1" <<<"$cfg"; }
+          # Every directory with a *.tf file declaring `terraform {`, outside copies and provider caches.
+          roots=$(get '(.workflows.ci.terraformRoots // []) | join(" ")')
+          if [ -z "$roots" ]; then
+            roots=$(git ls-files -z -- '*.tf' | xargs -0 -r grep -lE '^[[:space:]]*terraform[[:space:]]*\{' 2>/dev/null \
+              | grep -vE '(^|/)(backup|old-[^/]*|\.terraform)/' | xargs -r -n1 dirname | sort -u | tr '\n' ' ')
+          fi
+          for r in $roots; do [ -d "$r" ] || fail "workflows.ci.terraformRoots: \"$r\" is not a directory."; done
+          manifests=$(get '(.workflows.ci.manifests // ["eks"]) | join(" ")')
+          trivy_paths=$(get '(.workflows.ci.trivyPaths // []) | join(" ")')
+          [ -n "$trivy_paths" ] || trivy_paths=$roots
+          k8s=$(get '.infra.eks.version // empty')
+          [ -z "$k8s" ] || [[ "$k8s" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || fail "infra.eks.version must be a version like 1.34 (got \"$k8s\")."
+          # one exact Terraform version, from the repository.
+          tf=""
+          if [ -f .terraform-version ]; then
+            tf=$(tr -d '[:space:]' < .terraform-version)
+            [[ "$tf" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail ".terraform-version must hold one exact version, like 1.15.8 (got \"$tf\")." .terraform-version
+          elif [ -n "$roots" ]; then
+            # shellcheck disable=SC2086 # why: roots is a space-separated list of directories
+            tf=$(find $roots -maxdepth 1 -name '*.tf' -exec grep -hE '^[[:space:]]*required_version[[:space:]]*=' {} + 2>/dev/null \
+              | sed -nE 's/.*"[[:space:]]*=?[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]*".*/\1/p' | head -1)
+            [ -n "$tf" ] || fail "No Terraform version: add .terraform-version (one exact version, the one Terraform Cloud runs), or an exact required_version in the terraform {} block." .terraform-version
+          fi
+          skips=$(get '.workflows.ci.skip // {} | to_entries | map("- \(.key): \(.value)") | join("\n")')
+          if [ -n "$skips" ]; then printf '### Checks switched off (.kheona.json workflows.ci.skip)\n%s\n' "$skips" >> "$GITHUB_STEP_SUMMARY"; fi
+          on() { [ -z "$(get ".workflows.ci.skip.$1 // empty")" ] && echo true || echo false; }
+          {
+            echo "roots=$roots"
+            echo "manifests=$manifests"
+            echo "trivy-paths=$trivy_paths"
+            echo "k8s=$k8s"
+            echo "terraform=$tf"
+            echo "fmt=$(on fmt)"; echo "validate=$(on validate)"; echo "tflint=$(on tflint)"; echo "trivy=$(on trivy)"; echo "kubeconform=$(on kubeconform)"
+          } | tee -a "$GITHUB_OUTPUT"
+
+      # The git-crypt files (ciphertext here): every encrypted *.tf emptied, every encrypted file listed for the
+      # checks that read YAML. In the runner's workspace only; nothing is committed.
+      - name: Set the git-crypt files aside
+        id: crypt
+        run: |
+          : > "$RUNNER_TEMP/encrypted.txt"
+          while IFS= read -r -d '' f; do
+            [ -f "$f" ] || continue
+            if [ "$(head -c 10 "$f" | od -An -c | tr -d ' \n')" = '\0GITCRYPT\0' ]; then
+              echo "$f" >> "$RUNNER_TEMP/encrypted.txt"
+              case "$f" in *.tf) : > "$f"; echo "emptied (encrypted): $f" ;; *) echo "skipped (encrypted): $f" ;; esac
+            fi
+          done < <(git ls-files -z)
+          echo "count=$(wc -l < "$RUNNER_TEMP/encrypted.txt" | tr -d ' ')" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Terraform
+        if: steps.read.outputs.terraform != ''
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ steps.read.outputs.terraform }}
+          terraform_wrapper: false
+
+      - name: Check the formatting (terraform fmt)
+        if: ${{ !cancelled() && steps.read.outputs.terraform != '' && steps.read.outputs.fmt == 'true' }}
+        run: terraform fmt -check -recursive -diff
+
+      - name: Validate each Terraform root (init -backend=false, validate)
+        id: validate
+        if: ${{ !cancelled() && steps.read.outputs.terraform != '' && steps.read.outputs.validate == 'true' }}
+        env:
+          ROOTS: ${{ steps.read.outputs.roots }}
+        run: |
+          status=0
+          for r in $ROOTS; do
+            echo "::group::$r"
+            if ! terraform -chdir="$r" init -backend=false -input=false -lockfile=readonly; then status=1; echo "::endgroup::"; continue; fi
+            # A root with an emptied (encrypted) file: declare the variables it no longer declares, then validate again.
+            if grep -q "^$r/[^/]*\.tf$" "$RUNNER_TEMP/encrypted.txt" 2>/dev/null || { [ "$r" = . ] && grep -q '^[^/]*\.tf$' "$RUNNER_TEMP/encrypted.txt"; }; then
+              terraform -chdir="$r" validate -json > "$RUNNER_TEMP/validate.json" || true
+              jq -r '.diagnostics[]? | select(.summary == "Reference to undeclared input variable") | .detail' "$RUNNER_TEMP/validate.json" \
+                | sed -nE 's/^An input variable with the name "([^"]+)".*/\1/p' | sort -u \
+                | while IFS= read -r v; do printf 'variable "%s" {\n  type = any\n}\n' "$v"; done > "$r/kskill-ci-undeclared.tf"
+              if [ -s "$r/kskill-ci-undeclared.tf" ]; then echo "declared for validate (their declarations are encrypted): $(grep -c '^variable' "$r/kskill-ci-undeclared.tf") variable(s)"; else rm -f "$r/kskill-ci-undeclared.tf"; fi
+            fi
+            terraform -chdir="$r" validate || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"
+
+      - name: Lint with tflint
+        if: ${{ !cancelled() && steps.read.outputs.roots != '' && steps.read.outputs.tflint == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}   # tflint --init: plugin downloads from GitHub, read-only
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSLO "https://github.com/terraform-linters/tflint/releases/download/${TFLINT_VERSION}/tflint_linux_amd64.zip"
+          echo "${TFLINT_SHA256}  tflint_linux_amd64.zip" | sha256sum -c -
+          unzip -q -o tflint_linux_amd64.zip -d "$RUNNER_TEMP/bin"
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/bin/tflint" --version
+          "$RUNNER_TEMP/bin/tflint" --init
+          "$RUNNER_TEMP/bin/tflint" --recursive --format compact
+
+      - name: Scan the configuration with trivy
+        if: ${{ !cancelled() && steps.read.outputs.trivy-paths != '' && steps.read.outputs.trivy == 'true' }}
+        env:
+          PATHS: ${{ steps.read.outputs.trivy-paths }}
+        run: |
+          cd "$RUNNER_TEMP"
+          tarball="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${tarball}"
+          echo "${TRIVY_SHA256}  ${tarball}" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin" && tar -xzf "$tarball" -C "$RUNNER_TEMP/bin" trivy
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/bin/trivy" --version
+          skip=(); while IFS= read -r f; do skip+=(--skip-files "$f"); done < "$RUNNER_TEMP/encrypted.txt"
+          ignore=(); [ -f .trivyignore ] && ignore=(--ignorefile .trivyignore)
+          status=0
+          for p in $PATHS; do
+            "$RUNNER_TEMP/bin/trivy" config --severity HIGH,CRITICAL --exit-code 1 --skip-dirs '**/.terraform' \
+              ${ignore[@]+"${ignore[@]}"} ${skip[@]+"${skip[@]}"} "$p" || status=1
+          done
+          exit "$status"
+
+      - name: Validate the manifests with kubeconform
+        if: ${{ !cancelled() && steps.read.outputs.manifests != '' && steps.read.outputs.kubeconform == 'true' }}
+        env:
+          MANIFESTS: ${{ steps.read.outputs.manifests }}
+          K8S: ${{ steps.read.outputs.k8s }}
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSLO "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform-linux-amd64.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin" && tar -xzf kubeconform-linux-amd64.tar.gz -C "$RUNNER_TEMP/bin" kubeconform
+          cd "$GITHUB_WORKSPACE"
+          files=()
+          for d in $MANIFESTS; do
+            [ -d "$d" ] || { echo "::warning::workflows.ci.manifests: \"$d\" is not a directory."; continue; }
+            while IFS= read -r -d '' f; do
+              case "/$f" in */backup/*|*/old-*) continue ;; esac
+              grep -qxF "$f" "$RUNNER_TEMP/encrypted.txt" && continue   # ciphertext
+              grep -qE '^kind:' "$f" || continue                        # not a manifest (Helm values, helmfile)
+              files+=("$f")
+            done < <(git ls-files -z -- "$d/*.yaml" "$d/*.yml" "$d/**/*.yaml" "$d/**/*.yml")
+          done
+          [ "${#files[@]}" -gt 0 ] || { echo "No manifest to validate."; exit 0; }
+          version=(); [ -z "$K8S" ] || version=(-kubernetes-version "$K8S.0")
+          [[ "$K8S" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && version=(-kubernetes-version "$K8S")
+          "$RUNNER_TEMP/bin/kubeconform" -strict -ignore-missing-schemas -summary ${version[@]+"${version[@]}"} "${files[@]}"

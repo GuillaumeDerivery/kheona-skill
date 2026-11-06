@@ -1,0 +1,334 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Checks that every target exists in the cluster, then builds the checked-out repository's ./Dockerfile, pushes it
+# to Amazon ECR tagged with the full commit SHA, points every listed deployment and cron job at that tag, waits
+# for each deployment's rollout, reads the running image back from the cluster into the run summary and fails if it differs, then optionally calls
+# the service's health check and compares the commit it reports.
+# Called by kskill-deploy.yml only (itself called by kskill-main.yml and kskill-ship.yml), after the gate; it never
+# decides which environment to deploy, never reads
+# .kheona.json and never pushes `latest`. Container name = deployment / cron job name (the existing convention).
+name: Kheona Skill · CD · Deploy to EKS
+description: Build, push by commit SHA, set image on EKS, wait for the rollout, report what runs.
+
+inputs:
+  aws-access-key-id:
+    description: AWS access key id (from a secret).
+    required: true
+  aws-secret-access-key:
+    description: AWS secret access key (from a secret).
+    required: true
+  region:
+    description: AWS region of the ECR repository and the EKS cluster.
+    required: true
+  cluster:
+    description: EKS cluster name.
+    required: true
+  ecr-repository:
+    description: ECR repository name (not the registry host).
+    required: true
+  targets:
+    description: 'JSON array of {"namespace": "...", "deployments": ["..."], "cronjobs": ["..."]}.'
+    required: true
+  platform:
+    description: The one platform built (linux/arm64 or linux/amd64); it must be the runner's own, nothing is emulated.
+    required: false
+    default: linux/arm64
+  build-args:
+    description: 'JSON object {"NAME": "value"} of Docker build arguments, besides GIT_SHA.'
+    required: false
+    default: '{}'
+  environment-name:
+    description: Environment being deployed (staging or prod); the value of environment-variable.
+    required: true
+  environment-variable:
+    description: When set, the name of an env var set to environment-name on every deployment (one rollout with the image).
+    required: false
+    default: ''
+  rollout-timeout:
+    description: How long each deployment may take to become ready (kubectl duration).
+    required: false
+    default: 5m
+  healthcheck-url:
+    description: When set, a URL that must answer 2xx after the rollout; a JSON `commit` field must equal the SHA.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    # fail in seconds naming the input. Names only; no value is printed.
+    - name: Check the inputs
+      shell: bash
+      env:
+        IN_KEY_ID: ${{ inputs.aws-access-key-id }}
+        IN_SECRET: ${{ inputs.aws-secret-access-key }}
+        IN_REGION: ${{ inputs.region }}
+        IN_CLUSTER: ${{ inputs.cluster }}
+        IN_REPOSITORY: ${{ inputs.ecr-repository }}
+        IN_TARGETS: ${{ inputs.targets }}
+      run: |
+        bad=0
+        for pair in "aws-access-key-id:IN_KEY_ID" "aws-secret-access-key:IN_SECRET" "region:IN_REGION" \
+                    "cluster:IN_CLUSTER" "ecr-repository:IN_REPOSITORY" "targets:IN_TARGETS"; do
+          var="${pair#*:}"
+          if [ -z "${!var}" ]; then
+            echo "::error::Deploy input '${pair%%:*}' is empty."
+            bad=1
+          fi
+        done
+        if [ "$bad" = 0 ] && ! jq -e 'type == "array" and length > 0' <<< "$IN_TARGETS" > /dev/null; then
+          echo "::error::Deploy input 'targets' is not a non-empty JSON array."
+          bad=1
+        fi
+        exit "$bad"
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      with:
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+        aws-region: ${{ inputs.region }}
+
+    # Pinned and checksum-verified. kubectl supports one minor of skew against the API server:
+    # The clusters deployed to run 1.34 (checked 2026-09-25). Raise this with the cluster, never ahead of it.
+    # One checksum per runner architecture (the build runs on a native runner, kskill-deploy.yml `runner`).
+    - name: Install kubectl
+      shell: bash
+      env:
+        KUBECTL_VERSION: v1.34.12
+        KUBECTL_SHA256_AMD64: 90b7b9058ffeb5c10710bb1c73f541eaf426fb1b4e87df435db669de9a2564a2
+        KUBECTL_SHA256_ARM64: c819e3eb6a540d4f1e6aacaac85580bf0793bd1e7d05095a47407733ccf0cfb7
+      run: |
+        case "$(uname -m)" in
+          x86_64) arch=amd64 sum=$KUBECTL_SHA256_AMD64 ;;
+          aarch64|arm64) arch=arm64 sum=$KUBECTL_SHA256_ARM64 ;;
+          *) echo "::error::No kubectl checksum for runner architecture $(uname -m)."; exit 1 ;;
+        esac
+        curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${arch}/kubectl"
+        echo "${sum}  kubectl" | sha256sum --check
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+
+    # The kubeconfig authenticates through `aws eks get-token` on every call, so the credential never expires
+    # mid-job (a static token lasts ~15 minutes, shorter than several rollout waits).
+    - name: Configure kubectl for the cluster
+      shell: bash
+      env:
+        REGION: ${{ inputs.region }}
+        CLUSTER: ${{ inputs.cluster }}
+      run: aws eks update-kubeconfig --region "$REGION" --name "$CLUSTER"
+
+    # Before the image is built: every deployment and cron job the targets name exists in the cluster. A target left in
+    # .kheona.json for an environment the cluster does not run (a namespace deleted until launch) fails here in seconds,
+    # not after the build, and says which setting to change.
+    - name: Check the targets exist
+      shell: bash
+      env:
+        TARGETS: ${{ inputs.targets }}
+        CLUSTER: ${{ inputs.cluster }}
+        ENV_NAME: ${{ inputs.environment-name }}
+      run: |
+        set -uo pipefail
+        bad=0
+        while read -r target; do
+          ns=$(jq -r .namespace <<< "$target")
+          for kind in deployments cronjobs; do
+            for name in $(jq -r --arg k "$kind" '.[$k][]' <<< "$target"); do
+              kubectl get "$kind/$name" --namespace "$ns" >/dev/null 2>&1 && continue
+              echo "::error::$kind/$name not found in namespace $ns of $CLUSTER: create it, or correct .kheona.json workflows.cd.${ENV_NAME:-<env>} (false while that environment does not exist)."
+              bad=1
+            done
+          done
+        done < <(jq -c '.[]' <<< "$TARGETS")
+        exit "$bad"
+
+    - name: Log in to Amazon ECR
+      id: ecr
+      uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+    # the image is tagged with the full commit SHA and deployed by that tag, never `latest`.
+    - name: Compute the image reference
+      id: image
+      shell: bash
+      env:
+        REGISTRY: ${{ steps.ecr.outputs.registry }}
+        REPOSITORY: ${{ inputs.ecr-repository }}
+      run: echo "ref=${REGISTRY}/${REPOSITORY}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+    # Native builds only, never emulated (no QEMU): the platform must be the runner's own (kskill-deploy.yml picks
+    # the runner from it). The build arguments, one NAME=value per line, after GIT_SHA.
+    - name: Check the platform and the build arguments
+      id: build
+      shell: bash
+      env:
+        PLATFORM: ${{ inputs.platform }}
+        BUILD_ARGS: ${{ inputs.build-args }}
+      run: |
+        case "$(uname -m)" in x86_64) native=linux/amd64 ;; aarch64|arm64) native=linux/arm64 ;; *) native="unknown ($(uname -m))" ;; esac
+        if [ "$PLATFORM" != "$native" ]; then
+          echo "::error::This runner builds $native, not $PLATFORM: nothing is emulated. Run the job on the $PLATFORM runner."
+          exit 1
+        fi
+        {
+          echo "args<<KSKILL_EOF"
+          echo "GIT_SHA=${GITHUB_SHA}"
+          jq -r 'to_entries[] | "\(.key)=\(.value)"' <<< "$BUILD_ARGS"
+          echo "KSKILL_EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+    # The layer cache's scope, one per platform and repository (environments with their own build arguments still
+    # share the dependency layers).
+    - name: Name the layer cache
+      id: cache
+      shell: bash
+      env:
+        PLATFORM: ${{ inputs.platform }}
+        REPOSITORY: ${{ inputs.ecr-repository }}
+      run: echo "scope=kskill-deploy-$(tr '/' '-' <<<"$PLATFORM")-${REPOSITORY//\//-}" >> "$GITHUB_OUTPUT"
+
+    - name: Build and push the image
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      with:
+        context: .
+        file: Dockerfile
+        platforms: ${{ inputs.platform }}
+        push: true
+        tags: ${{ steps.image.outputs.ref }}
+        # GIT_SHA, the commit the image was built from, reported by the service (e.g. /healthcheck `commit`),
+        # then the environment's own build arguments (.kheona.json workflows.cd.<env>.buildArgs).
+        build-args: ${{ steps.build.outputs.args }}
+        # Layers cached in the Actions cache, per platform and repository: an unchanged
+        # dependency layer is not rebuilt. A cache that cannot be written never fails the deploy.
+        cache-from: type=gha,scope=${{ steps.cache.outputs.scope }}
+        cache-to: type=gha,mode=max,scope=${{ steps.cache.outputs.scope }},ignore-error=true
+
+    # When environment-variable is set, the deployment is paused so the env change and the new image roll out
+    # once. The variable is set on the deployment, not baked into the image: staging and prod share one tag.
+    - name: Point deployments and cron jobs at the image
+      shell: bash
+      env:
+        IMAGE: ${{ steps.image.outputs.ref }}
+        TARGETS: ${{ inputs.targets }}
+        ENV_VAR: ${{ inputs.environment-variable }}
+        ENV_NAME: ${{ inputs.environment-name }}
+      run: |
+        set -euo pipefail
+        # A deployment left paused stalls every later rollout, manual ones included: whatever fails between
+        # pause and resume, resume it on the way out.
+        paused=""
+        resume_paused() { if [ -n "$paused" ]; then kubectl rollout resume "deployments/${paused#*/}" --namespace "${paused%%/*}" || true; fi; }
+        trap resume_paused EXIT
+        while read -r target; do
+          ns=$(jq -r .namespace <<< "$target")
+          for d in $(jq -r '.deployments[]' <<< "$target"); do
+            echo "Setting deployments/$d in $ns to :${GITHUB_SHA}"
+            if [ -n "$ENV_VAR" ]; then
+              kubectl rollout pause "deployments/$d" --namespace "$ns"
+              paused="$ns/$d"
+              kubectl set env "deployments/$d" "${ENV_VAR}=${ENV_NAME}" --namespace "$ns"
+            fi
+            kubectl set image "deployments/$d" "$d=$IMAGE" --namespace "$ns"
+            if [ -n "$ENV_VAR" ]; then
+              kubectl rollout resume "deployments/$d" --namespace "$ns"
+              paused=""
+            fi
+          done
+          for c in $(jq -r '.cronjobs[]' <<< "$target"); do
+            echo "Setting cronjobs/$c in $ns to :${GITHUB_SHA}"
+            kubectl set image "cronjobs/$c" "$c=$IMAGE" --namespace "$ns"
+          done
+        done < <(jq -c '.[]' <<< "$TARGETS")
+
+    # `set image` returns once the API server accepts the spec; a version that crash-loops leaves the old
+    # pods serving. Wait for every deployment, in parallel, and fail on timeout. Cron jobs have no rollout:
+    # their image is checked by the read-back below.
+    - name: Wait for the rollouts
+      shell: bash
+      env:
+        TARGETS: ${{ inputs.targets }}
+        TIMEOUT: ${{ inputs.rollout-timeout }}
+      run: |
+        set -uo pipefail
+        pids=(); names=()
+        while read -r ns d; do
+          kubectl rollout status "deployments/$d" --namespace "$ns" --timeout="$TIMEOUT" &
+          pids+=($!); names+=("$ns/$d")
+        done < <(jq -r '.[] | .namespace as $ns | .deployments[] | "\($ns) \(.)"' <<< "$TARGETS")
+        failed=""
+        for i in "${!pids[@]}"; do
+          wait "${pids[$i]}" || failed="$failed ${names[$i]}"
+        done
+        if [ -n "$failed" ]; then
+          echo "::error::Rollout not ready within ${TIMEOUT}; the previous version may still be serving:$failed"
+          exit 1
+        fi
+
+    # report what the cluster runs, read back rather than echoed, and fail if it differs. The registry host
+    # carries the AWS account id, so the summary shows repository:tag only.
+    - name: Report what shipped
+      shell: bash
+      env:
+        IMAGE: ${{ steps.image.outputs.ref }}
+        TARGETS: ${{ inputs.targets }}
+        ENV_NAME: ${{ inputs.environment-name }}
+      run: |
+        set -uo pipefail
+        {
+          echo "## Deployed to ${ENV_NAME}"
+          echo
+          echo "Image tag (full commit SHA): \`${GITHUB_SHA}\`"
+          echo
+          echo "| Resource | Image the cluster runs now |"
+          echo "|---|---|"
+        } >> "$GITHUB_STEP_SUMMARY"
+        failed=""
+        while read -r ns kind name; do
+          running=$(kubectl get "$kind/$name" --namespace "$ns" -o jsonpath='{..image}')
+          echo "| $ns $kind/$name | \`$(sed -E 's#[^ ]+/([^ /]+)#\1#g' <<< "$running")\` |" >> "$GITHUB_STEP_SUMMARY"
+          found=no
+          for candidate in $running; do
+            if [ "$candidate" = "$IMAGE" ]; then found=yes; fi
+          done
+          if [ "$found" = no ]; then failed="$failed $ns/$kind/$name"; fi
+        done < <(jq -r '.[] | .namespace as $ns | (.deployments[] | "\($ns) deployments \(.)"), (.cronjobs[] | "\($ns) cronjobs \(.)")' <<< "$TARGETS")
+        if [ -n "$failed" ]; then
+          echo "::error::The cluster does not run the image this job pushed (:${GITHUB_SHA}) for:$failed"
+          exit 1
+        fi
+
+    # Off unless healthcheck-url is set. Retries for ~2 minutes (DNS, ingress, load-balancer drain). A JSON body
+    # with a `commit` field (lib-based Node services: GET /healthcheck) must name this SHA; without one, a 2xx passes
+    # with a warning. The URL is printed (it is configuration, not a secret).
+    - name: Check the health endpoint
+      if: inputs.healthcheck-url != ''
+      shell: bash
+      env:
+        URL: ${{ inputs.healthcheck-url }}
+      run: |
+        set -uo pipefail
+        last=""
+        for attempt in $(seq 1 12); do
+          if body=$(curl -fsS --max-time 10 "$URL"); then
+            commit=$(jq -r '.commit // empty' <<< "$body" 2>/dev/null || true)
+            if [ -z "$commit" ]; then
+              echo "::warning::$URL answered 2xx but reports no \`commit\`; the running SHA was not confirmed."
+              echo "Health check: $URL answered, no commit reported." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            # A full SHA, or an abbreviation of at least 7 characters, of this commit.
+            if [ "${#commit}" -ge 7 ] && [ "${GITHUB_SHA#"$commit"}" != "$GITHUB_SHA" ]; then
+              echo "Health check: $URL reports commit \`$commit\`." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            last="reports commit $commit"
+          else
+            last="did not answer 2xx"
+          fi
+          echo "Attempt $attempt: $URL $last; retrying in 10 s."
+          sleep 10
+        done
+        echo "::error::$URL $last (expected commit ${GITHUB_SHA})."
+        exit 1

@@ -1,0 +1,554 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Trigger: called by Kheona Skill · CD · Push to prod and deliver on a push to prod; by hand on prod
+# Purpose: the full gate, then builds, signs and uploads the app to TestFlight and Google Play
+# Effect: store uploads (releases the app)
+# ships a Flutter app to TestFlight and to Google Play, signed, from CI. Called by `Kheona Skill · CD · Push to prod and deliver`
+# (kskill-ship.yml) on a push to `prod`, or run by hand (workflow_dispatch); refused on any ref but `prod`; it
+# has no pull_request trigger, so a PR or a fork can never reach it. Both store lanes `needs:` the repository's gate, `Kheona Skill · CI`, run inside
+# this run. Releasing is `prod` moving forward, one deliberate act: see ci-cd.md "The release branch".
+# Never: commits back, looks a build number up from a store, carries a paths-ignore, publishes from `main`.
+#
+# The build number is the commit count of `prod` (+ an offset), the same on both stores (kskill-build-number.sh).
+# The repository variable BUILD_NUMBER_OVERRIDE, when set, replaces it for one run (re-ship an unchanged commit).
+# What is app-specific and stays in the repository, behind a stable hook: `android/fastlane/Fastfile` and
+# `ios/fastlane/Fastfile` (+ Appfiles) own bundle/package ids, team id, Play track, ABIs, signing settings and
+# the .ipa name. The workflow runs `cd android && fastlane <android.lane>` and `cd ios && fastlane <ios.lane>`
+# with BUILD_NUMBER, CM_KEYSTORE_PATH, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD,
+# PLAY_STORE_JSON_KEY_PATH, ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_FILEPATH, SENTRY_ENVIRONMENT in the environment (the
+# lane compiles it in with --dart-define=SENTRY_ENVIRONMENT=..., read by lib/core/config/app_config.dart, ).
+# The Android lane must
+# leave one .aab under build/app/outputs/bundle/, the iOS lane one .ipa under ios/build/.
+# The Flutter version is read from `.fvmrc` (`{"flutter": "x.y.z"}`).
+#
+# .kheona.json, all optional (`workflows.cd.*`):
+#   enabled             bool    true    false: the workflow does nothing (an app shipped by another service).
+#   android.enabled     bool    true    run the Play lane.
+#   android.lane        string  "beta"  fastlane lane run in android/.
+#   android.java        string  "17"    Temurin JDK for Gradle.
+#   android.ruby        string  "3.3"   Ruby that runs fastlane on the Android runner.
+#   android.sentryEnvironment string "staging"  SENTRY_ENVIRONMENT of the Play lane: staging (internal track) or prod (store).
+#   ios.enabled         bool    true    run the TestFlight lane.
+#   ios.lane            string  "beta"  fastlane lane run in ios/.
+#   ios.xcode           string  ""      Xcode selected on the runner (/Applications/Xcode_<v>.app); "" = image default.
+#   ios.sentryEnvironment string "staging"  SENTRY_ENVIRONMENT of the iOS lane: staging (TestFlight) or prod (App Store).
+#   buildNumber.offset  int     0       added to the commit count (an app whose store already holds higher numbers).
+#   sentry.enabled      bool    false   upload debug symbols with `dart run sentry_dart_plugin` after each build.
+#   sentry.org          string  -       Sentry organisation slug (required when sentry.enabled).
+#   sentry.project      string  -       Sentry project slug (required when sentry.enabled).
+#   sentry.appId        string  -       release prefix the app reports, `<appId>@<version>+<build>` (required when enabled).
+#   sentry.url          string  ""      Sentry base URL (e.g. https://de.sentry.io); "" = the CLI default.
+# Secrets: KSKILL_TOKEN_BROKER_URL (passed to the gate), ANDROID_KEYSTORE_BASE64, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD,
+# PLAY_STORE_JSON_KEY_BASE64, IOS_DIST_CERTIFICATE_P12_BASE64, IOS_DIST_CERTIFICATE_PASSWORD, ASC_KEY_ID,
+# ASC_ISSUER_ID, ASC_API_KEY_BASE64, SENTRY_AUTH_TOKEN (optional: missing = a warning, symbols not uploaded).
+name: Kheona Skill · Deliver
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        description: node, python, flutter or infra (written by the setup command).
+        type: string
+        required: true
+    secrets:
+      ANDROID_KEYSTORE_BASE64:
+        required: false
+      ASC_API_KEY_BASE64:
+        required: false
+      ASC_ISSUER_ID:
+        required: false
+      ASC_KEY_ID:
+        required: false
+      CM_KEYSTORE_PASSWORD:
+        required: false
+      CM_KEY_ALIAS:
+        required: false
+      CM_KEY_PASSWORD:
+        required: false
+      IOS_DIST_CERTIFICATE_P12_BASE64:
+        required: false
+      IOS_DIST_CERTIFICATE_PASSWORD:
+        required: false
+      PLAY_STORE_JSON_KEY_BASE64:
+        required: false
+      SENTRY_AUTH_TOKEN:
+        required: false
+
+concurrency:
+  group: kskill-deliver-flutter-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  KSKILL_BOT: ${{ vars.KSKILL_BOT }}
+  KSKILL_LIB_REPO: ${{ vars.KSKILL_LIB_REPO }}
+  # Exact pin: an unpinned `gem install fastlane` moved a working sigh() call onto a breaking release overnight.
+  FASTLANE_VERSION: "2.240.1"
+  FASTLANE_SKIP_UPDATE_CHECK: "1"
+  FASTLANE_HIDE_CHANGELOG: "1"
+  FASTLANE_DISABLE_COLORS: "1"
+
+jobs:
+  config:
+    name: Read the delivery settings
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      enabled: ${{ steps.read.outputs.enabled }}
+      android: ${{ steps.read.outputs.android }}
+      android_lane: ${{ steps.read.outputs.android_lane }}
+      android_environment: ${{ steps.read.outputs.android_environment }}
+      java: ${{ steps.read.outputs.java }}
+      ruby: ${{ steps.read.outputs.ruby }}
+      ios: ${{ steps.read.outputs.ios }}
+      ios_lane: ${{ steps.read.outputs.ios_lane }}
+      ios_environment: ${{ steps.read.outputs.ios_environment }}
+      xcode: ${{ steps.read.outputs.xcode }}
+      offset: ${{ steps.read.outputs.offset }}
+      sentry: ${{ steps.read.outputs.sentry }}
+      sentry_org: ${{ steps.read.outputs.sentry_org }}
+      sentry_project: ${{ steps.read.outputs.sentry_project }}
+      sentry_app_id: ${{ steps.read.outputs.sentry_app_id }}
+      sentry_url: ${{ steps.read.outputs.sentry_url }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read .kheona.json
+        id: read
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          json='{}'
+          if [ -f .kheona.json ]; then json="$(cat .kheona.json)"; fi
+          get() { # get <jq path> <default>: the value as a string, the default when absent or null
+            jq -r --arg d "$2" "($1) as \$v | if \$v == null then \$d else (\$v | tostring) end" <<<"$json"
+          }
+          fail() { echo "::error::.kheona.json $1"; exit 1; }
+
+          enabled="$(get .workflows.cd.enabled true)"
+          case "$enabled" in true|false) ;; *) fail "workflows.cd.enabled must be true or false, got '$enabled'." ;; esac
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+          if [ "$enabled" = false ]; then
+            echo "::notice::workflows.cd.enabled is false: this repository is not delivered by this workflow."
+            exit 0
+          fi
+          # A build number is the commit count of the ref: from any other branch it would burn a number `prod`
+          # has not reached (or reuse one it has), and the stores never take a number back.
+          if [ "$REF" != refs/heads/prod ]; then
+            echo "::error::Deliveries run on refs/heads/prod only; this run is on $REF."
+            exit 1
+          fi
+
+          android="$(get .workflows.cd.android.enabled true)"
+          ios="$(get .workflows.cd.ios.enabled true)"
+          sentry="$(get .workflows.cd.sentry.enabled false)"
+          for pair in "android.enabled=$android" "ios.enabled=$ios" "sentry.enabled=$sentry"; do
+            case "${pair#*=}" in true|false) ;; *) fail "workflows.cd.${pair%%=*} must be true or false, got '${pair#*=}'." ;; esac
+          done
+          android_lane="$(get .workflows.cd.android.lane beta)"
+          ios_lane="$(get .workflows.cd.ios.lane beta)"
+          for lane in "$android_lane" "$ios_lane"; do
+            [[ "$lane" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || fail "fastlane lane names are letters, digits and _, got '$lane'."
+          done
+          # a mobile app's internal builds (TestFlight, Play internal) report as staging, the store release as prod.
+          android_environment="$(get .workflows.cd.android.sentryEnvironment staging)"
+          ios_environment="$(get .workflows.cd.ios.sentryEnvironment staging)"
+          for pair in "android=$android_environment" "ios=$ios_environment"; do
+            case "${pair#*=}" in staging|prod) ;; *) fail "workflows.cd.${pair%%=*}.sentryEnvironment must be staging or prod, got '${pair#*=}'." ;; esac
+          done
+          java="$(get .workflows.cd.android.java 17)"
+          ruby="$(get .workflows.cd.android.ruby 3.3)"
+          xcode="$(get .workflows.cd.ios.xcode '')"
+          for version in "$java" "$ruby"; do
+            [[ "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]] || fail "android.java / android.ruby must be a version, got '$version'."
+          done
+          [[ -z "$xcode" || "$xcode" =~ ^[0-9]+(\.[0-9]+)*$ ]] || fail "workflows.cd.ios.xcode must be a version, got '$xcode'."
+          offset="$(get .workflows.cd.buildNumber.offset 0)"
+          [[ "$offset" =~ ^[0-9]+$ ]] || fail "workflows.cd.buildNumber.offset must be a non-negative integer, got '$offset'."
+
+          sentry_org="$(get .workflows.cd.sentry.org '')"
+          sentry_project="$(get .workflows.cd.sentry.project '')"
+          sentry_app_id="$(get .workflows.cd.sentry.appId '')"
+          sentry_url="$(get .workflows.cd.sentry.url '')"
+          if [ "$sentry" = true ]; then
+            for pair in "org=$sentry_org" "project=$sentry_project" "appId=$sentry_app_id"; do
+              [[ "${pair#*=}" =~ ^[A-Za-z0-9._-]+$ ]] || fail "workflows.cd.sentry.${pair%%=*} is required when sentry.enabled is true (slug characters only)."
+            done
+            [[ -z "$sentry_url" || "$sentry_url" =~ ^https://[A-Za-z0-9.-]+/?$ ]] || fail "workflows.cd.sentry.url must be an https:// base URL, got '$sentry_url'."
+          fi
+          if [ "$android" = false ] && [ "$ios" = false ]; then
+            fail "enables neither store lane: set workflows.cd.enabled to false instead."
+          fi
+
+          {
+            echo "android=$android"; echo "android_lane=$android_lane"; echo "java=$java"; echo "ruby=$ruby"
+            echo "android_environment=$android_environment"; echo "ios_environment=$ios_environment"
+            echo "ios=$ios"; echo "ios_lane=$ios_lane"; echo "xcode=$xcode"; echo "offset=$offset"
+            echo "sentry=$sentry"; echo "sentry_org=$sentry_org"; echo "sentry_project=$sentry_project"
+            echo "sentry_app_id=$sentry_app_id"; echo "sentry_url=$sentry_url"
+          } >> "$GITHUB_OUTPUT"
+          echo "Android: $android (lane $android_lane, $android_environment), iOS: $ios (lane $ios_lane, $ios_environment, Xcode ${xcode:-image default}), Sentry upload: $sentry, build number offset: $offset."
+
+  # The gate: the same jobs a pull request runs, inside this run, so nothing ships from an unverified commit.
+  ci:
+    name: Run the gate
+    needs: config
+    if: needs.config.outputs.enabled == 'true'
+    uses: ./.github/workflows/kskill-ci.yml
+    permissions:
+      contents: read
+      actions: read            # the gate's tested-tree lookup (never reused on prod: the full gate runs)
+    with:
+      stack: ${{ inputs.stack }}
+
+  android:
+    name: Android → Google Play
+    needs: [config, ci]
+    if: needs.config.outputs.android == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      # fetch-depth: 0 is load-bearing: the build number is the commit count, and depth 1 counts 1.
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # fail in seconds with the names, not fifteen minutes later at signing.
+      - name: Check the signing secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          CM_KEYSTORE_PASSWORD: ${{ secrets.CM_KEYSTORE_PASSWORD }}
+          CM_KEY_ALIAS: ${{ secrets.CM_KEY_ALIAS }}
+          CM_KEY_PASSWORD: ${{ secrets.CM_KEY_PASSWORD }}
+          PLAY_STORE_JSON_KEY_BASE64: ${{ secrets.PLAY_STORE_JSON_KEY_BASE64 }}
+          REPO: ${{ github.repository }}
+        run: |
+          missing=()
+          for name in ANDROID_KEYSTORE_BASE64 CM_KEYSTORE_PASSWORD CM_KEY_ALIAS CM_KEY_PASSWORD PLAY_STORE_JSON_KEY_BASE64; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing repository secret(s): ${missing[*]}. Set them with: gh secret set <NAME> --repo $REPO"
+            exit 1
+          fi
+
+      - name: Derive the build number
+        env:
+          BUILD_NUMBER_OVERRIDE: ${{ vars.BUILD_NUMBER_OVERRIDE }}
+          KSKILL_BUILD_NUMBER_OFFSET: ${{ needs.config.outputs.offset }}
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-build-number.sh"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version-file: .fvmrc
+          channel: stable
+          cache: true
+
+      - name: Set up Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: ${{ needs.config.outputs.java }}
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@e1bd6146574da5e0795075b5319b300edb30c5b0 # v1.333.0
+        with:
+          ruby-version: ${{ needs.config.outputs.ruby }}
+          bundler-cache: false
+
+      - name: Install fastlane
+        run: gem install fastlane -N -v "$FASTLANE_VERSION"
+
+      # Flutter's template gradle.properties lets the Gradle and Kotlin daemons each take -Xmx8G on a ~7.8 GiB
+      # runner, which gets the job OOM-killed mid-build ("The runner has received a shutdown signal").
+      # GRADLE_USER_HOME/gradle.properties wins over the project's file, so this caps CI only.
+      - name: Cap Gradle memory for the runner
+        run: |
+          mkdir -p ~/.gradle
+          cat > ~/.gradle/gradle.properties <<'PROPS'
+          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError
+          kotlin.daemon.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=768m
+          org.gradle.workers.max=2
+          org.gradle.caching=true
+          org.gradle.vfs.watch=false
+          PROPS
+          cat ~/.gradle/gradle.properties
+
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile
+
+      # Dependencies change only with the build files: a content key. The task-output cache must absorb every
+      # build, and actions/cache only saves on a key miss: a run-id key, restored from the newest previous one.
+      - name: Cache Gradle dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/caches/jars-*
+            ~/.gradle/caches/transforms-*
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-deps-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-deps-
+
+      - name: Cache the Gradle build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.gradle/caches/build-cache-1
+          key: ${{ runner.os }}-gradle-build-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-build-
+
+      # A plugin's native build needs CMake, which the SDK manager otherwise re-installs on every run.
+      - name: Cache the Android SDK CMake
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /usr/local/lib/android/sdk/cmake
+          key: ${{ runner.os }}-android-cmake-3.22.1
+
+      - name: Decode the keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
+          echo -n "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          [ -s "$KEYSTORE_PATH" ] || { echo "::error::ANDROID_KEYSTORE_BASE64 decoded to an empty keystore."; exit 1; }
+          echo "CM_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+
+      - name: Decode the Play Console key
+        env:
+          PLAY_STORE_JSON_KEY_BASE64: ${{ secrets.PLAY_STORE_JSON_KEY_BASE64 }}
+        run: |
+          JSON_KEY_PATH="$RUNNER_TEMP/play-store-key.json"
+          echo -n "$PLAY_STORE_JSON_KEY_BASE64" | base64 --decode > "$JSON_KEY_PATH"
+          python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$JSON_KEY_PATH" \
+            || { echo "::error::PLAY_STORE_JSON_KEY_BASE64 did not decode to valid JSON."; exit 1; }
+          echo "PLAY_STORE_JSON_KEY_PATH=$JSON_KEY_PATH" >> "$GITHUB_ENV"
+
+      # a build that dies silently mid-step is resource exhaustion far more often than anything else.
+      - name: Print resources before the build
+        run: |
+          nproc || true
+          free -h || true
+          df -h /
+
+      - name: Build and upload to Google Play
+        env:
+          CM_KEYSTORE_PASSWORD: ${{ secrets.CM_KEYSTORE_PASSWORD }}
+          CM_KEY_ALIAS: ${{ secrets.CM_KEY_ALIAS }}
+          CM_KEY_PASSWORD: ${{ secrets.CM_KEY_PASSWORD }}
+          SENTRY_ENVIRONMENT: ${{ needs.config.outputs.android_environment }}
+          LANE: ${{ needs.config.outputs.android_lane }}
+        run: cd android && fastlane "$LANE"
+
+      - name: Print resources after the build
+        if: always()
+        run: |
+          free -h || true
+          df -h /
+
+      # same job as the build, whose output disappears with the runner. Not always(): a failed build has
+      # nothing worth uploading.
+      - name: Upload debug symbols to Sentry
+        if: success() && needs.config.outputs.sentry == 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          KSKILL_SENTRY_ORG: ${{ needs.config.outputs.sentry_org }}
+          KSKILL_SENTRY_PROJECT: ${{ needs.config.outputs.sentry_project }}
+          KSKILL_SENTRY_APP_ID: ${{ needs.config.outputs.sentry_app_id }}
+          KSKILL_SENTRY_URL: ${{ needs.config.outputs.sentry_url }}
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-flutter-sentry-upload.sh"
+
+      - name: Report what shipped
+        if: success()
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-flutter-report-shipped.sh" android
+
+      - name: Keep the App Bundle
+        if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: app-release-aab
+          path: build/app/outputs/bundle/*/*.aab
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: iOS → TestFlight
+    needs: [config, ci]
+    if: needs.config.outputs.ios == 'true'
+    runs-on: macos-26
+    # macOS bills at 10x: this bounds what one hung run costs. The lane's real work is ~20-30 minutes cold.
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check the signing secrets
+        env:
+          IOS_DIST_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_DIST_CERTIFICATE_P12_BASE64 }}
+          IOS_DIST_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DIST_CERTIFICATE_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_API_KEY_BASE64: ${{ secrets.ASC_API_KEY_BASE64 }}
+          REPO: ${{ github.repository }}
+        run: |
+          missing=()
+          for name in IOS_DIST_CERTIFICATE_P12_BASE64 IOS_DIST_CERTIFICATE_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_BASE64; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing repository secret(s): ${missing[*]}. Set them with: gh secret set <NAME> --repo $REPO"
+            exit 1
+          fi
+
+      # The image is pinned, the Xcode inside it is not: GitHub moves the default during an image's lifetime, and
+      # signing breaks with an error that never names Xcode. Selecting it makes that day a .kheona.json change.
+      - name: Select Xcode
+        env:
+          XCODE_VERSION: ${{ needs.config.outputs.xcode }}
+        run: |
+          if [ -n "$XCODE_VERSION" ]; then
+            XCODE_APP="/Applications/Xcode_${XCODE_VERSION}.app"
+            if [ ! -d "$XCODE_APP" ]; then
+              echo "::error::$XCODE_APP is not on this runner image. Available:"
+              ls -d /Applications/Xcode_*.app 2>/dev/null || true
+              exit 1
+            fi
+            sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          else
+            echo "::notice::workflows.cd.ios.xcode is not set: building with the image's default Xcode."
+          fi
+          xcodebuild -version
+          xcode-select -p
+
+      - name: Derive the build number
+        env:
+          BUILD_NUMBER_OVERRIDE: ${{ vars.BUILD_NUMBER_OVERRIDE }}
+          KSKILL_BUILD_NUMBER_OFFSET: ${{ needs.config.outputs.offset }}
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-build-number.sh"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version-file: .fvmrc
+          channel: stable
+          cache: true
+
+      - name: Install fastlane
+        run: |
+          gem install fastlane -N -v "$FASTLANE_VERSION"
+          fastlane --version | tail -n 3
+
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile
+
+      # GitHub's "Installing an Apple certificate on macOS runners" recipe; the keychain is deleted at the end.
+      - name: Import the distribution certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.IOS_DIST_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.IOS_DIST_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+          CERTIFICATE_PATH="$RUNNER_TEMP/distribution.p12"
+
+          echo -n "$CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          [ -s "$CERTIFICATE_PATH" ] || { echo "::error::IOS_DIST_CERTIFICATE_P12_BASE64 decoded to an empty file."; exit 1; }
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          # shellcheck disable=SC2046 # why: one keychain path per word is the intended split
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/"//g')
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # A .p12 without its private key imports fine and only fails 20 minutes later at codesign.
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -q "Apple Distribution" \
+            || { echo "::error::No 'Apple Distribution' identity in the imported certificate."; exit 1; }
+
+      - name: Write the App Store Connect key
+        env:
+          ASC_API_KEY_BASE64: ${{ secrets.ASC_API_KEY_BASE64 }}
+        run: |
+          ASC_KEY_PATH="$RUNNER_TEMP/asc_api_key.p8"
+          echo -n "$ASC_API_KEY_BASE64" | base64 --decode > "$ASC_KEY_PATH"
+          grep -q "BEGIN PRIVATE KEY" "$ASC_KEY_PATH" \
+            || { echo "::error::ASC_API_KEY_BASE64 did not decode to a .p8 private key."; exit 1; }
+          echo "ASC_KEY_FILEPATH=$ASC_KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Print resources before the build
+        run: |
+          vm_stat || true
+          df -h /
+
+      - name: Build and upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          SENTRY_ENVIRONMENT: ${{ needs.config.outputs.ios_environment }}
+          LANE: ${{ needs.config.outputs.ios_lane }}
+        run: cd ios && fastlane "$LANE"
+
+      - name: Print resources after the build
+        if: always()
+        run: |
+          vm_stat || true
+          df -h /
+
+      - name: Upload debug symbols to Sentry
+        if: success() && needs.config.outputs.sentry == 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          KSKILL_SENTRY_ORG: ${{ needs.config.outputs.sentry_org }}
+          KSKILL_SENTRY_PROJECT: ${{ needs.config.outputs.sentry_project }}
+          KSKILL_SENTRY_APP_ID: ${{ needs.config.outputs.sentry_app_id }}
+          KSKILL_SENTRY_URL: ${{ needs.config.outputs.sentry_url }}
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-flutter-sentry-upload.sh"
+
+      - name: Report what shipped
+        if: success()
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-flutter-report-shipped.sh" ios
+
+      # xcodebuild's real error is in gym's log, not the truncated console. upload-artifact does not expand `~`.
+      - name: Collect the build logs
+        if: failure()
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/ci-logs"
+          cp -R ~/Library/Logs/gym "$GITHUB_WORKSPACE/ci-logs/gym" 2>/dev/null || true
+
+      - name: Keep the build logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ios-build-logs
+          path: ci-logs
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Delete the keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true

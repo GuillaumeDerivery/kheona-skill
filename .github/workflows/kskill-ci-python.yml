@@ -1,0 +1,348 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Trigger: called by Kheona Skill · PR, Main and the production deploy; by hand
+# Purpose: the Python gate: repository check, format, lint, typecheck, tests with coverage, audit, Docker build where none follows
+# Effect: nothing: reports only
+# gate for a Python (Pipenv) repository: format, lint, typecheck, tests with a coverage floor,
+# the raw coverage report as an artifact on every run , a dependency audit, a Docker build where the
+# repository has a Dockerfile and nothing else builds it (never on a pull request: the
+# deploy builds the image before any rollout; not where the caller passes `image: false`, the deploy's gate and
+# kskill-main.yml before a staging deploy), and the repository check (a step of the first job).
+# Called, never triggered by a push of its own: by `Kheona Skill · PR` on every pull request (kskill-pr.yml, never
+# filtered by base branch), by `Kheona Skill · Main` on every push to main (kskill-main.yml) and by the production
+# deploy (`uses: ./.github/workflows/kskill-ci.yml`, where every repository installs its stack's CI, `needs:`); by hand.
+# Once per tree (kskill-tested-tree.sh): a push to the default branch (kskill-main.yml's call) whose tree a green
+# `Kheona Skill · PR` run tested, runs only its first job; `prod` and dispatches always run in full.
+# Not on the release PR (head kskill/release): its head is main's commit or tree, tested on main, and shipping runs the
+# gate again; the job-level `if:` skips it before any runner starts.
+# It never pushes, publishes or deploys anything; it only reads. Secrets read: KSKILL_TOKEN_BROKER_URL (the automation App, repository check only).
+# Python version: read from .python-version, Pipfile [requires] or pyproject requires-python (never set here).
+# Tools (ruff, black, pylint, mypy, pip-audit, pytest-cov) come from the repository's locked dev packages,
+# installed with `pipenv install --dev --deploy`; a switched-on tool that is not installed fails by name.
+#
+# .kheona.json `workflows.ci` (a missing key means the default):
+#   package        string            required  source package: lint/typecheck target and --cov source
+#   paths          array of strings  [package, "tests"] (existing ones)  what format and ruff check cover
+#   format         "ruff"|"black"|"none"     "ruff"   format check (tool options from the repo's config)
+#   lint           array of "ruff","pylint"  ["ruff","pylint"]  linters (pylint on <package>/*, its pylintrc)
+#   typecheck      "mypy"|"none"             "mypy"   mypy <package>
+#   audit          boolean                   true     pip-audit over the installed locked environment
+#   coverageFloor  number                    90       minimum line coverage from coverage.xml;
+#                                                     the repository's own --cov-fail-under may be stricter
+#   docker         boolean                   true when ./Dockerfile exists   build the image, never push
+# .kheona.json `phase` (kskill-phase.sh): "bootstrap" passes a run with no test collected and reports the
+# coverage floor without failing on it; "established" (the default) gates both. A run on `prod` (the deploy's gate on
+# a production push) fails while the repository is in bootstrap.
+name: Kheona Skill · CI
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Build the Docker image in this gate (never on a pull request). false where the caller builds it (the deploy).
+        type: boolean
+        default: true
+      stack:
+        description: The stack, for the job names.
+        type: string
+        default: ''
+      called:
+        type: boolean
+        default: false
+
+concurrency:
+  group: kskill-ci-python-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# actions: read: the reuse lookup (kskill-tested-tree.sh). A caller grants it to its `uses:` job.
+permissions:
+  contents: read
+  actions: read
+
+env:
+  KSKILL_BOT: ${{ vars.KSKILL_BOT }}
+  KSKILL_LIB_REPO: ${{ vars.KSKILL_LIB_REPO }}
+  PIPENV_VERSION: '2026.8.0'
+
+jobs:
+  config:
+    name: Read the configuration
+    # Not on the release PR: its head is main's commit (or tree), tested on main; shipping runs this gate again.
+    if: github.head_ref != 'kskill/release'
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      python: ${{ steps.read.outputs.python }}
+      package: ${{ steps.read.outputs.package }}
+      paths: ${{ steps.read.outputs.paths }}
+      format: ${{ steps.read.outputs.format }}
+      lint: ${{ steps.read.outputs.lint }}
+      typecheck: ${{ steps.read.outputs.typecheck }}
+      audit: ${{ steps.read.outputs.audit }}
+      coverage-floor: ${{ steps.read.outputs.coverage-floor }}
+      docker: ${{ steps.read.outputs.docker }}
+      phase: ${{ steps.phase.outputs.phase }}
+      reused: ${{ steps.reuse.outputs.reused == 'true' }}
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # once per tree: a pull_request run records the tree it tests; a push to the default branch whose tree a
+      # green Kheona Skill · PR run already tested skips the rest of this gate (kskill-tested-tree.sh says exactly when;
+      # never on prod, never when unsure).
+      - name: Record the tested tree
+        id: tree
+        if: github.event_name == 'pull_request'
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-tested-tree.sh" record
+
+      - name: Upload the tested tree
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: kskill-tested-tree-${{ steps.tree.outputs.tree }}
+          path: ${{ steps.tree.outputs.file }}
+          retention-days: 14
+          overwrite: true
+
+      - name: Look for a green PR run of this tree
+        id: reuse
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-tested-tree.sh" find
+
+      # every caller as this version expects it, every other workflow declared.
+      - name: Check the repository
+        if: steps.reuse.outputs.reused != 'true'
+        uses: $/.github/actions/kskill-repo-check
+        with:
+          broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+          fork: ${{ github.event.repository.fork }}
+          sentry-project: ${{ vars.SENTRY_PROJECT }}
+
+      # bootstrap or established; a production push (the deploy's gate on `prod`) refuses bootstrap.
+      - name: Read the phase
+        id: phase
+        run: |
+          if [ "$GITHUB_REF" = refs/heads/prod ]; then bash "$KSKILL_HOME/.github/scripts/kskill-phase.sh" --ship; else bash "$KSKILL_HOME/.github/scripts/kskill-phase.sh"; fi
+
+      - name: Read .kheona.json and the Python version
+        id: read
+        run: |
+          fail() { echo "::error file=.kheona.json::$1"; exit 1; }
+          cfg='{}'
+          if [ -f .kheona.json ]; then
+            jq empty .kheona.json 2>/dev/null || fail "not valid JSON"
+            cfg=$(jq -c '.workflows.ci // {}' .kheona.json)
+          fi
+          get() { jq -r "$1" <<<"$cfg"; }
+
+          package=$(get '.package // empty')
+          [ -n "$package" ] || fail "workflows.ci.package is required: the source package to lint, typecheck and measure (e.g. \"app\")."
+          [ -d "$package" ] || fail "workflows.ci.package \"$package\" is not a directory at the repository root."
+
+          paths=$(get '(.paths // []) | join(" ")')
+          if [ -z "$paths" ]; then
+            paths=$package
+            [ -d tests ] && paths="$paths tests"
+          fi
+
+          format=$(get '.format // "ruff"')
+          case "$format" in ruff|black|none) ;; *) fail "workflows.ci.format must be ruff, black or none (got \"$format\")." ;; esac
+
+          lint=$(get '(.lint // ["ruff","pylint"]) | join(" ")')
+          for l in $lint; do
+            case "$l" in ruff|pylint) ;; *) fail "workflows.ci.lint entries must be ruff or pylint (got \"$l\")." ;; esac
+          done
+
+          typecheck=$(get '.typecheck // "mypy"')
+          case "$typecheck" in mypy|none) ;; *) fail "workflows.ci.typecheck must be mypy or none (got \"$typecheck\")." ;; esac
+
+          audit=$(get 'if .audit == null then true else .audit end')
+          case "$audit" in true|false) ;; *) fail "workflows.ci.audit must be a boolean (got \"$audit\")." ;; esac
+
+          floor=$(get '.coverageFloor // 90')
+          [[ "$floor" =~ ^[0-9]+(\.[0-9]+)?$ ]] || fail "workflows.ci.coverageFloor must be a number (got \"$floor\")."
+
+          docker=$(get 'if .docker == null then "auto" else .docker end')
+          [ "$docker" = auto ] && { if [ -f Dockerfile ]; then docker=true; else docker=false; fi; }
+          case "$docker" in true|false) ;; *) fail "workflows.ci.docker must be a boolean (got \"$docker\")." ;; esac
+
+          [ -f Pipfile.lock ] || { echo "::error::Pipfile.lock is missing: this gate installs from a committed Pipenv lock."; exit 1; }
+          python=$(bash "$KSKILL_HOME/.github/scripts/kskill-python-version.sh" .)
+
+          {
+            echo "python=$python"
+            echo "package=$package"
+            echo "paths=$paths"
+            echo "format=$format"
+            echo "lint=$lint"
+            echo "typecheck=$typecheck"
+            echo "audit=$audit"
+            echo "coverage-floor=$floor"
+            echo "docker=$docker"
+          } | tee -a "$GITHUB_OUTPUT"
+
+  check:
+    name: Lint, typecheck and test
+    needs: config
+    if: needs.config.outputs.reused != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PACKAGE: ${{ needs.config.outputs.package }}
+      PATHS: ${{ needs.config.outputs.paths }}
+      FORMAT: ${{ needs.config.outputs.format }}
+      LINT: ${{ needs.config.outputs.lint }}
+      TYPECHECK: ${{ needs.config.outputs.typecheck }}
+      AUDIT: ${{ needs.config.outputs.audit }}
+      COVERAGE_FLOOR: ${{ needs.config.outputs.coverage-floor }}
+      PHASE: ${{ needs.config.outputs.phase }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ needs.config.outputs.python }}
+          cache: pipenv
+
+      - name: Install Pipenv
+        run: python -m pip install --disable-pip-version-check "pipenv==$PIPENV_VERSION"
+
+      - name: Install dependencies from the lock
+        id: install
+        run: pipenv install --dev --deploy
+
+      - name: Check the tools are installed
+        id: tools
+        run: |
+          need=()
+          [ "$FORMAT" != none ] && need+=("$FORMAT")
+          for l in $LINT; do need+=("$l"); done
+          [ "$TYPECHECK" != none ] && need+=("$TYPECHECK")
+          [ "$AUDIT" = true ] && need+=(pip-audit)
+          need+=(pytest)
+          venv=$(pipenv --venv)
+          missing=()
+          for t in "${need[@]}"; do [ -x "$venv/bin/$t" ] || missing+=("$t"); done
+          has_cov=$(pipenv run python -c 'import importlib.util as u; print(u.find_spec("pytest_cov") is not None)')
+          [ "$has_cov" = True ] || missing+=(pytest-cov)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error file=Pipfile::Not in the locked dev packages: ${missing[*]}. Add them to [dev-packages], or switch them off in .kheona.json workflows.ci."
+            exit 1
+          fi
+
+      - name: Check the formatting
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' && env.FORMAT != 'none' }}
+        run: |
+          # shellcheck disable=SC2086 # why: PATHS is a space-separated list of paths
+          case "$FORMAT" in
+            ruff) pipenv run ruff format --check $PATHS ;;
+            black) pipenv run black --check $PATHS ;;
+          esac
+
+      - name: Lint with ruff
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' && contains(env.LINT, 'ruff') }}
+        run: |
+          # shellcheck disable=SC2086 # why: PATHS is a space-separated list of paths
+          pipenv run ruff check $PATHS
+
+      - name: Lint with pylint
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' && contains(env.LINT, 'pylint') }}
+        run: pipenv run pylint "$PACKAGE"/*
+
+      - name: Typecheck with mypy
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' && env.TYPECHECK == 'mypy' }}
+        run: pipenv run mypy "$PACKAGE"
+
+      - name: Run the tests with coverage
+        id: tests
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+        run: |
+          # Exit 5 is "no test collected": a pass in the bootstrap phase only.
+          status=0
+          pipenv run pytest --cov="$PACKAGE" --cov-report=xml:coverage.xml --cov-report=term-missing || status=$?
+          if [ "$status" = 5 ] && [ "$PHASE" = bootstrap ]; then
+            echo "::notice::No tests yet: accepted in the bootstrap phase."
+            echo "no_tests=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          exit "$status"
+
+      - name: Check the coverage floor
+        if: ${{ !cancelled() && steps.tests.outcome != 'skipped' && steps.tests.outputs.no_tests != 'true' }}
+        run: |
+          [ -f coverage.xml ] || { echo "::error::coverage.xml was not written: the tests did not finish."; exit 1; }
+          pipenv run python - <<'PY'
+          import os, sys, xml.etree.ElementTree as ET
+          floor = float(os.environ["COVERAGE_FLOOR"])
+          total = round(float(ET.parse("coverage.xml").getroot().get("line-rate")) * 100, 2)
+          print(f"Line coverage {total}% (floor {floor}%)")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(f"Line coverage: **{total}%** (floor {floor}%)\n")
+          if total < floor and os.environ["PHASE"] == "bootstrap":
+              print(f"::warning::Line coverage {total}% is below the floor {floor}%: reported only in the bootstrap phase.")
+          elif total < floor:
+              print(f"::error::Line coverage {total}% is below the floor {floor}% (.kheona.json workflows.ci.coverageFloor).")
+              sys.exit(1)
+          PY
+
+      - name: Upload the coverage report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: |
+            coverage.xml
+            htmlcov/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Audit the dependencies
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' && env.AUDIT == 'true' }}
+        run: pipenv run pip-audit
+
+  docker:
+    name: Build the Docker image
+    needs: config
+    if: >-
+      needs.config.outputs.docker == 'true' && needs.config.outputs.reused != 'true' &&
+      github.event_name != 'pull_request' && toJSON(inputs.image) != 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Never pushed. Layers cached in the Actions cache (main's runs write it).
+      - name: Build the image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=kskill-ci-docker
+          cache-to: ${{ github.ref == 'refs/heads/main' && 'type=gha,mode=max,scope=kskill-ci-docker' || '' }}

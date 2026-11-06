@@ -1,0 +1,36 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Trigger: a push to main (a merged PR)
+# Purpose: the library's gate once (a green PR run of the same tree reused)
+# Effect: nothing: reports only (the release is Kheona Skill · Release)
+# What a push to `main` starts in a library (`role: library`): its gate, `.github/workflows/kskill-ci.yml`, called
+# once (a green `Kheona Skill · PR` run of the same tree is reused, kskill-tested-tree.sh). Installed as
+# `.github/workflows/kskill-main.yml`. The release is `Kheona Skill · Release` (kskill-release-please.yml), on the
+# same push; a library meant to be forked also carries `Kheona Skill · Sync upstream` (the notice to its forks).
+# Variable: KSKILL_TOKEN_BROKER_URL (the token broker). No .kheona.json keys of its own.
+name: Kheona Skill · Main
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        description: node, python, flutter or infra (written by the setup command).
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  KSKILL_BOT: ${{ vars.KSKILL_BOT }}
+  KSKILL_LIB_REPO: ${{ vars.KSKILL_LIB_REPO }}
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/kskill-ci.yml
+    permissions:
+      contents: read
+      actions: read            # the tested-tree lookup: a green PR run of this tree is reused (kskill-tested-tree.sh)
+    with:
+      stack: ${{ inputs.stack }}

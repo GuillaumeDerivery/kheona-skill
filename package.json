@@ -1,0 +1,13 @@
+{
+  "name": "kheona-skill",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MPL-2.0",
+  "type": "module",
+  "exports": {
+    "./prettier": "./.github/config/kskill-prettier.mjs",
+    "./knip": "./.github/config/kskill-knip.mjs",
+    "./stryker": "./.github/config/kskill-stryker.mjs",
+    "./dependency-cruiser": "./.github/config/kskill-dependency-cruiser.cjs"
+  }
+}

@@ -1,0 +1,237 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Trigger: a push to main; the doctor's daily dispatch or a person's "release now"
+# Purpose: release-please: opens the release PR, merges it, tags and publishes the release, notifies the users
+# Effect: merges the release PR, creates the tag and GitHub release, dispatches the post-release workflows
+# a library releases itself. Versions by release-please from the Conventional Commits on main (`fix:` patch,
+# `feat:` minor, `!` or a BREAKING CHANGE footer major; the others release nothing), with the repository's own
+# release-please-config.json and .release-please-manifest.json. The chain, fully automatic, and no runner ever waits:
+#  1. On every push to main, release-please opens or updates its release PR (version, changelog: no code). If the gate
+#     already passed on the PR's head (nothing new to test), the same run merges it; otherwise it ends there.
+#  2. The release PR's own `Kheona Skill · PR` run (the default gate, kskill-pr.yml) squash-merges it once CI passed, at
+#     the commit it tested (--match-head-commit), as one of its merge rules. A failed gate leaves the PR open for a person.
+#  3. The merge is a real `push` (the App token), so this workflow runs again: that run tags and creates the GitHub
+#     release, then runs the post-release hook from .kheona.json: the notice to the repositories that use this one
+#     (`notify`) and this repository's own follow-up workflows (`dispatch`).
+# With `merge: "daily"`, neither step 1 nor `Kheona Skill · PR` merges: only a `workflow_dispatch` run does (the Kheona
+# doctor's daily dispatch, or a person's "release now"), so a day's merges make one release. A
+# daily run that merges nothing runs `dispatch` itself: the post-release workflows run once a day either way. A gate
+# other than kskill-pr.yml (kheona-skill's own `ci.yml`) is merged by those runs alone.
+# Why the automation App (secrets KSKILL_TOKEN_BROKER_URL): a PR opened with GITHUB_TOKEN gets
+# `pull_request` runs GitHub holds and never starts (no jobs), and a merge with it starts no workflow. This repository's
+# token writes; the notice mints one per owner (.github/scripts/kskill-app-tokens.mjs). Missing: the job fails saying so.
+# Never: merges a PR other than release-please's own, merges a commit the gate did not pass, releases from a fork,
+# merges the release PR while .kheona.json `phase` is "bootstrap" (kskill-phase.sh --ship: the first release needs
+# "established").
+#
+# .kheona.json `workflows.releasePlease` (a missing key means the default):
+#   gate      string    "kskill-pr.yml"  workflow file whose `pull_request` run on the release PR must pass
+#   notify    object    none             { "topic": "<topic>", "event": "<event_type>" }: after a release, sends
+#                                        `repository_dispatch` <event> (payload `tag`) to every non-fork repository
+#                                        carrying <topic> (kheona-skill's scripts/kskill-repos.sh) whose .gitmodules
+#                                        points at this repository; one it cannot reach fails the run
+#   dispatch  string[]  []               workflow files of this repository run on main after a release
+#   merge     string    "gate"           "gate": the release PR merges as soon as the gate passes on it; "daily": only
+#                                        a workflow_dispatch run merges it (above)
+name: Kheona Skill · Release
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+env:
+  KSKILL_BOT: ${{ vars.KSKILL_BOT }}
+  KSKILL_LIB_REPO: ${{ vars.KSKILL_LIB_REPO }}
+
+jobs:
+  release:
+    name: Release
+    if: ${{ !github.event.repository.fork }}
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      id-token: write
+    runs-on: ubuntu-24.04
+    # No waiting in it: release-please, a merge, or the tag and the notices.
+    timeout-minutes: 15
+    # In the job: a fork's skipped run never enters the group. Both merges (this one and Kheona Skill · PR's) are
+    # --match-head-commit and tolerate a PR the other one already merged.
+    concurrency:
+      group: kskill-release-please
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      - name: Require the App secrets
+        env:
+          BROKER: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+        run: |
+          if [ -z "$BROKER" ]; then
+            echo "::error::Variable KSKILL_TOKEN_BROKER_URL is not set: the App token opens the release PR (so its CI runs), merges it, tags the release and sends the notices."
+            exit 1
+          fi
+
+      # the App's token for this repository alone: a push, PR or merge made with it starts workflows.
+      - name: Mint the App token
+        id: app
+        uses: $/.github/actions/kskill-token
+        with:
+          broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read the configuration
+        id: config
+        run: |
+          fail() { echo "::error file=.kheona.json::$1" >&2; exit 1; }
+          cfg='{}'
+          if [ -f .kheona.json ]; then
+            jq empty .kheona.json 2>/dev/null || fail "not valid JSON"
+            cfg=$(jq -c '.workflows.releasePlease // {}' .kheona.json)
+          fi
+          gate=$(jq -r '.gate // "kskill-pr.yml"' <<<"$cfg")
+          topic=$(jq -r '.notify.topic // empty' <<<"$cfg")
+          event=$(jq -r '.notify.event // empty' <<<"$cfg")
+          if { [ -n "$topic" ] && [ -z "$event" ]; } || { [ -z "$topic" ] && [ -n "$event" ]; }; then
+            fail "workflows.releasePlease.notify needs both topic and event."
+          fi
+          jq -e '(.dispatch // []) | type == "array" and all(type == "string")' <<<"$cfg" >/dev/null ||
+            fail "workflows.releasePlease.dispatch must be an array of workflow file names."
+          merge=$(jq -r '.merge // "gate"' <<<"$cfg")
+          case "$merge" in gate|daily) ;; *) fail "workflows.releasePlease.merge must be \"gate\" or \"daily\" (got \"$merge\")." ;; esac
+          {
+            echo "gate=$gate"
+            echo "merge=$merge"
+            echo "topic=$topic"
+            echo "event=$event"
+            echo "dispatch=$(jq -r '(.dispatch // []) | join(" ")' <<<"$cfg")"
+          } >> "$GITHUB_OUTPUT"
+          notice=none; [ -z "$topic" ] || notice="$event to the repositories with the topic $topic"
+          echo "Gate: $gate. Merge: $merge. Notice: $notice. Dispatch: $(jq -r '(.dispatch // []) | join(", ") | if . == "" then "none" else . end' <<<"$cfg")."
+
+      - name: Run release-please
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          token: ${{ steps.app.outputs.token }}
+
+      - name: Find the release PR
+        id: pr
+        if: steps.release.outputs.releases_created != 'true'
+        env:
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
+          GATE: ${{ steps.config.outputs.gate }}
+          MERGE: ${{ steps.config.outputs.merge }}
+        run: |
+          set -euo pipefail
+          if [ "$MERGE" = daily ] && [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
+            echo "merge: daily: the release PR is merged by the next workflow_dispatch run (the doctor's, or a person's)." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # The action's own output first: it applies the `autorelease: pending` label a moment after
+          # creating the PR, so a label search right away can miss it.
+          number="$(printf '%s' "${RELEASE_PR:-}" | jq -r '.number // empty' 2>/dev/null || true)"
+          if [ -z "$number" ]; then
+            number="$(gh pr list --state open --label 'autorelease: pending' --json number --jq '.[0].number // empty')"
+          fi
+          if [ -z "$number" ]; then echo "No release PR open."; exit 0; fi
+          sha="$(gh pr view "$number" --json headRefOid --jq .headRefOid)"
+          # No waiting here: the PR's own gate run merges it (Kheona Skill · PR, merge: gate). Only a head the gate
+          # already passed (release-please left the PR unchanged) is merged by this run.
+          passed="$(gh run list --workflow "$GATE" --event pull_request --commit "$sha" --status success --limit 1 \
+            --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -z "$passed" ]; then
+            next="its run merges it"; [ "$MERGE" = gate ] || next="the next daily run merges it"
+            echo "Release PR #$number ($sha): $GATE has not passed on it yet; $next." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "Release PR #$number ($sha): $GATE already passed on it (run $passed)."
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # a library's first release ends its bootstrap phase.
+      - name: Check the phase
+        if: steps.pr.outputs.number != ''
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-phase.sh" --ship
+
+      - name: Merge the release PR
+        id: merge
+        if: steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          NUMBER: ${{ steps.pr.outputs.number }}
+          SHA: ${{ steps.pr.outputs.sha }}
+        # Only the commit the gate tested: a PR that moved meanwhile is merged by the run its own update started.
+        run: |
+          set -euo pipefail
+          read -r state head < <(gh pr view "$NUMBER" --json state,headRefOid --jq '"\(.state) \(.headRefOid)"')
+          if [ "$state" != OPEN ]; then echo "Release PR #$NUMBER is already $state."; exit 0; fi
+          if [ "$head" != "$SHA" ]; then echo "Release PR #$NUMBER moved past $SHA: the gate's run on $head decides."; exit 0; fi
+          if ! gh pr merge "$NUMBER" --squash --delete-branch --match-head-commit "$SHA"; then
+            # Kheona Skill · PR may have merged it a moment earlier.
+            [ "$(gh pr view "$NUMBER" --json state --jq .state)" = MERGED ] || exit 1
+            echo "Release PR #$NUMBER was merged meanwhile."
+          fi
+          echo "merged=true" >> "$GITHUB_OUTPUT"
+          echo "Merged release PR #$NUMBER at $SHA." >> "$GITHUB_STEP_SUMMARY"
+
+      # The users live under several owners: gh gets the token of the owner each command names.
+      - name: Mint a token per owner
+        if: steps.release.outputs.releases_created == 'true' && steps.config.outputs.topic != ''
+        env:
+          KSKILL_TOKEN_BROKER_URL: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+        run: node "$KSKILL_HOME/.github/scripts/kskill-app-tokens.mjs" "$RUNNER_TEMP/kskill-app" --install
+
+      - name: Notify the repositories that use this one
+        if: steps.release.outputs.releases_created == 'true' && steps.config.outputs.topic != ''
+        env:
+          TAG: ${{ steps.release.outputs.tag_name }}
+          TOPIC: ${{ steps.config.outputs.topic }}
+          EVENT: ${{ steps.config.outputs.event }}
+        run: |
+          # Every non-fork, non-archived repository the App is installed on with the topic: kskill-repos.sh, the one
+          # definition the map uses too. Forks receive the change through their upstream sync.
+          candidates="$(bash "$KSKILL_HOME/scripts/kskill-repos.sh" --topic "$TOPIC" --forks exclude --exclude "$GITHUB_REPOSITORY")"
+          failed=0; notified=0
+          for repo in $candidates; do
+            # A user of this repository is one whose .gitmodules points at it (ssh or https URL).
+            gitmodules="$(gh api "repos/$repo/contents/.gitmodules" --jq .content 2>/dev/null | base64 -d 2>/dev/null || true)"
+            if ! grep -qiE "url *= *.*[/:]${GITHUB_REPOSITORY}(\.git)? *$" <<<"$gitmodules"; then
+              echo "::warning::$repo carries the topic $TOPIC but has no $GITHUB_REPOSITORY submodule: not notified."; continue
+            fi
+            if gh api "repos/$repo/dispatches" -f "event_type=$EVENT" -f "client_payload[tag]=$TAG" --silent; then
+              echo "Notified $repo of $TAG ($EVENT)" >> "$GITHUB_STEP_SUMMARY"; notified=$((notified + 1))
+            else
+              echo "::error::Could not notify $repo"; failed=1
+            fi
+          done
+          [ "$notified" -gt 0 ] || echo "::warning::No repository with the topic $TOPIC uses $GITHUB_REPOSITORY as a submodule: $TAG was announced to nobody."
+          exit $failed
+
+      # After a release; and in a daily run that merged nothing (no release PR, or not yet green), so a change that
+      # releases nothing (ci:, chore:...) still reaches them once a day. A merge's own push run releases and runs them.
+      - name: Run the post-release workflows
+        if: >-
+          steps.config.outputs.dispatch != '' && (steps.release.outputs.releases_created == 'true' || (
+            steps.config.outputs.merge == 'daily' && github.event_name == 'workflow_dispatch' && steps.merge.outputs.merged != 'true'))
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          TAG: ${{ steps.release.outputs.tag_name }}
+          DISPATCH: ${{ steps.config.outputs.dispatch }}
+        run: |
+          for workflow in $DISPATCH; do
+            gh workflow run "$workflow" --ref main
+            echo "${TAG:+Released $TAG; }dispatched $workflow." >> "$GITHUB_STEP_SUMMARY"
+          done

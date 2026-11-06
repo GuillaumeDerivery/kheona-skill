@@ -1,0 +1,186 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Kheona dependency policy (this repository), extended by every repository's renovate.json. Renovate runs daily from kheona-skill (.github/workflows/renovate.yml, dispatched by the Kheona doctor); a repository gets at most one update PR a week (Monday), one lock file PR (Thursday), one draft for majors, and a security PR at once.",
+  "extends": [
+    "config:recommended",
+    ":semanticCommitTypeAll(chore)",
+    ":semanticCommitScope(deps)"
+  ],
+  "timezone": "Europe/Paris",
+  "schedule": [
+    "* * * * 1"
+  ],
+  "updateNotScheduled": false,
+  "labels": [
+    "dependencies"
+  ],
+  "dependencyDashboardLabels": [
+    "dependencies"
+  ],
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 5,
+  "platformAutomerge": false,
+  "automergeType": "pr",
+  "automergeStrategy": "squash",
+  "gitIgnoredAuthors": ["41898282+github-actions[bot]@users.noreply.github.com"],
+  "gradle": {
+    "enabled": false
+  },
+  "gradle-wrapper": {
+    "enabled": false
+  },
+  "lockFileMaintenance": {
+    "description": "K1.4 item 2: transitive dependencies (npm, pub, Pipfile lockfiles), weekly on Thursday, merged like a minor. Renovate cannot group it with the Monday PR (\"Grouping lockfile maintenance with other update types is not supported\"), and on the same day the two PRs rewrite the same lockfile: whichever merges second conflicts and, nothing being touched out of its window (updateNotScheduled false), would wait a week; Thursday starts from a main that holds Monday's PR.",
+    "enabled": true,
+    "automerge": true,
+    "schedule": [
+      "* * * * 4"
+    ],
+    "labels": [
+      "dependencies",
+      "automerge"
+    ]
+  },
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "description": "K5: a PR per known vulnerability, at once, from OSV (osvVulnerabilityAlerts: osv.dev, for a direct dependency with one exact version: npm through its lockfile, a Pipfile entry pinned with == (the pipenv rule below); Renovate maps no pub, Docker or GitHub Actions ecosystem to OSV) and from GitHub's advisories where a repository still has them. Dependabot is off everywhere (templates/repo-settings.json): these PRs depend on nothing of it. Unscheduled, its own PR, never in the weekly group (Renovate gives each vulnerability its own branch). The fix PR keeps the policy of its update type: a minor or patch carries the automerge label from the minor/patch rule (addLabels, not labels, which would replace it), a major stays a draft for a person.",
+    "enabled": true,
+    "schedule": [
+      "at any time"
+    ],
+    "addLabels": [
+      "security"
+    ]
+  },
+  "customManagers": [
+    {
+      "description": "K1.1: Pipfile's [requires] python_version (major.minor) moves with the Dockerfile's python image and .python-version, in the Python runtime group: Renovate's pipenv manager reads it but never updates it. Same datasource and versioning as the image (docker), so \"3.14\" becomes the matching \"3.15\". Pipfile.lock's hash then needs `pipenv lock` (the minor is a draft for a person).",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)Pipfile$/"
+      ],
+      "matchStrings": [
+        "\\[requires\\][^\\[]*?python_version\\s*=\\s*\"(?<currentValue>\\d+\\.\\d+)\""
+      ],
+      "depNameTemplate": "python",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "K1.4: every minor, patch, pin and digest update of the repository, all ecosystems (npm, Python, pub, Docker, GitHub Actions, the Node and Python runtimes' patches), in ONE PR a week (the Monday schedule above), labelled automerge: Kheona Skill \u00b7 PR merges it once CI passed on that exact commit, and Renovate's own automerge (platformAutomerge off: the free plan has none) is the backstop on its next run. Everywhere a version is written moves in that one PR (.nvmrc, the Dockerfile's image, engines.node), so CI's \"runtime versions agree\" check holds.",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "pinDigest",
+        "digest"
+      ],
+      "groupName": "all non-major dependencies",
+      "groupSlug": "all-minor-patch",
+      "automerge": true,
+      "labels": [
+        "dependencies",
+        "automerge"
+      ]
+    },
+    {
+      "description": "K1.4: every major update of the repository, all ecosystems, in one draft PR (refreshed on Mondays only), never merged automatically: a person reviews and merges it (or ticks a single one on the Dependency Dashboard to have it alone).",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "groupName": "major updates",
+      "groupSlug": "all",
+      "automerge": false,
+      "draftPR": true,
+      "labels": [
+        "dependencies"
+      ]
+    },
+    {
+      "description": "A 0.x package's minor is a breaking release (semver 0.y): in the majors' draft PR (renovate/major-all), for a person.",
+      "matchCurrentVersion": "/^[\\^~]?0\\./",
+      "matchUpdateTypes": [
+        "minor"
+      ],
+      "groupName": "major updates",
+      "groupSlug": "major-all",
+      "automerge": false,
+      "draftPR": true,
+      "labels": [
+        "dependencies"
+      ]
+    },
+    {
+      "description": "K5: Renovate's OSV lookup needs an exact version, and its pipenv manager reads none from Pipfile.lock: a Pipfile range (`~=2.9`) is skipped without a word. Every Pipfile dependency is pinned (`==2.9.0`, the locked version), and rangeStrategy pin turns a range added later into a pin PR (merged like a minor) and keeps each update an exact pin. `*` is never looked up (skipped as unspecified): write the version.",
+      "matchManagers": [
+        "pipenv"
+      ],
+      "rangeStrategy": "pin"
+    },
+    {
+      "description": "K1.1: a new Python minor (3.14 -> 3.15) is a runtime move, not a dependency update: one draft PR for a person moving every place it is written (.python-version, the Dockerfile's python image, Pipfile's python_version), apart from the weekly PR (Node's minors are LTS releases and stay in it; Python patches too).",
+      "matchDepNames": [
+        "python"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "major"
+      ],
+      "groupName": "Python runtime",
+      "groupSlug": "python-runtime",
+      "automerge": false,
+      "draftPR": true,
+      "labels": [
+        "dependencies"
+      ],
+      "prBodyNotes": [
+        "Where a Pipfile carries `python_version`, it moved with the image: run `pipenv lock` on this branch (Pipfile.lock's hash follows Pipfile) before marking it ready."
+      ]
+    },
+    {
+      "description": "K1.1: the Python version is looked up minor apart from patch (separateMinorPatch), else a pending 3.15 hides every 3.14.x; the patch joins the weekly PR: its branch is the weekly one (separateMinorPatch would otherwise name it renovate/patch-all-minor-patch, a second PR).",
+      "matchDepNames": [
+        "python"
+      ],
+      "separateMinorPatch": true
+    },
+    {
+      "matchDepNames": [
+        "python"
+      ],
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "group": {
+        "branchTopic": "all-minor-patch"
+      }
+    },
+    {
+      "description": "K1.3/K1.5: the Flutter and Dart SDKs move with the inbox's refresh-flutter job (kskill-inbox.yml), which reports the Android Gradle/AGP/Kotlin triple the SDK implies.",
+      "matchManagers": [
+        "fvm"
+      ],
+      "enabled": false
+    },
+    {
+      "matchManagers": [
+        "pub"
+      ],
+      "matchDepNames": [
+        "flutter",
+        "dart"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "K2.10: the kskill-* copies are kheona-skill's templates, bumped there once.",
+      "matchFileNames": [
+        ".github/workflows/kskill-*.yml",
+        ".github/actions/kskill-*/**"
+      ],
+      "enabled": false
+    }
+  ]
+}

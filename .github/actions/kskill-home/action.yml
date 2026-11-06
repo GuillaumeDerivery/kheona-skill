@@ -1,0 +1,21 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Puts this version's files in reach of a job: a workflow shared across repositories runs in the caller's checkout, so
+# its scripts and configs are not there. KSKILL_HOME is the root of this repository at the running commit.
+name: Kheona Skill · Home
+description: Export KSKILL_HOME and KSKILL_REPO, the running version of this repository.
+
+runs:
+  using: composite
+  steps:
+    - name: Export KSKILL_HOME
+      shell: bash
+      env:
+        WORKFLOW_REF: ${{ job.workflow_ref }}
+      run: |
+        home=$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)
+        repo=${GITHUB_ACTION_REPOSITORY:-${WORKFLOW_REF%%/.github/*}}
+        {
+          echo "KSKILL_HOME=$home"
+          echo "KSKILL_REPO=$repo"
+        } >> "$GITHUB_ENV"
