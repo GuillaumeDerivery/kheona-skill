@@ -204,6 +204,7 @@ jobs:
     permissions:
       contents: read
       actions: read            # the gate's tested-tree lookup (never reused on prod: the full gate runs)
+      id-token: write
     with:
       stack: ${{ inputs.stack }}
 

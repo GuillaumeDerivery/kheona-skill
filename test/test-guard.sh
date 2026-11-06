@@ -3,6 +3,7 @@
 # not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # The guard, on a throwaway repository: terms found by place, the term itself never printed.
 set -uo pipefail
+unset GITHUB_ACTIONS
 HERE=$(cd "$(dirname "$0")/.." && pwd); G="$HERE/.github/scripts/kskill-guard.mjs"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 pass=0 failed=0
@@ -36,4 +37,6 @@ check "... the placeholder passes" "$rc" '^0$'
 printf 'Terms: SecretCorp\n' > "$T/pr"
 out=$(KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" --no-files --text-file "$T/pr" 2>&1); rc=$?
 check "the text of a PR" "$rc" '^1$'
+out=$(GITHUB_ACTIONS=true KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" --no-files --text-file "$T/pr" 2>&1); rc=$?
+check "on GitHub, a hit is an error annotation" "$rc $out" '^1 ::error::'
 echo "$pass passed, $failed failed"; [ "$failed" = 0 ]

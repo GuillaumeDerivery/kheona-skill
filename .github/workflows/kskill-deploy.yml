@@ -280,6 +280,7 @@ jobs:
     permissions:
       contents: read
       actions: read            # the gate reuses a green PR run of the same tree on main (kskill-tested-tree.sh)
+      id-token: write
 
   deploy:
     name: Deploy to ${{ needs.plan.outputs.environment }}
