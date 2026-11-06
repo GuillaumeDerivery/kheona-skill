@@ -244,7 +244,7 @@ jobs:
           out environment-variable "$envvar"
           out healthcheck-url "$health"
           out slack-label "$label"
-          out aws-role-arn "$(jq -r --arg e "$environment" '.workflows.cd[$e].awsRoleArn // empty' .kheona.json)"
+          out aws-role-arn "$(jq -r --arg e "$env" '.workflows.cd[$e].awsRoleArn // empty' "$f")"
 
       # names only, never a value.
       - name: Check the secrets
