@@ -12,7 +12,7 @@ description: Build, push by commit SHA, set image on EKS, wait for the rollout, 
 
 inputs:
   role-arn:
-    description: AWS role to assume with the job's OIDC identity (needs `id-token: write`). When set, the stored key is not used.
+    description: "AWS role to assume with the job's OIDC identity (the job needs id-token write). When set, the stored key is not used."
     required: false
     default: ""
   aws-access-key-id:
