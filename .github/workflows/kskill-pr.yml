@@ -199,7 +199,7 @@ jobs:
         uses: $/.github/actions/kskill-token
         with:
           broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
-          permissions: '{"contents": "write", "pull-requests": "write"}'
+          permissions: '{"contents": "write", "pull_requests": "write"}'
 
       - name: Post or update the review comment
         if: steps.token.outputs.ok == 'true' && always()
