@@ -51,6 +51,11 @@ out=$(EVENT=pull_request plan pr-refused "{\"workflows\":{\"cd\":{\"staging\":{$
 check "a pull request: refused"                            "$out" 'only deploys as a dry run'
 out=$(EVENT=pull_request DRY_RUN=true plan pr-dry "{\"workflows\":{\"cd\":{\"staging\":{$E}}}}")
 check "a pull request as a dry run: staging"               "$out" '^environment=staging$'
+ROLE=arn:aws:iam::111122223333:role/example
+out=$(plan role "{\"workflows\":{\"cd\":{\"staging\":{$E,\"awsRoleArn\":\"$ROLE\"},\"prod\":{$E}}}}")
+check "awsRoleArn: this environment's role"                "$out" "^aws-role-arn=$ROLE$"
+out=$(plan role-prod "{\"workflows\":{\"cd\":{\"staging\":{$E,\"awsRoleArn\":\"$ROLE\"},\"prod\":{$E}}}}" prod)
+check "... not the other environment's"                    "$out" '^aws-role-arn=$'
 
 echo "$pass passed, $failn failed"
 [ "$failn" -eq 0 ]
