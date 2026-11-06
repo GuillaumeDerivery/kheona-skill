@@ -32,5 +32,6 @@ jobs:
     permissions:
       contents: read
       actions: read            # the tested-tree lookup: a green PR run of this tree is reused (kskill-tested-tree.sh)
+      id-token: write
     with:
       stack: ${{ inputs.stack }}

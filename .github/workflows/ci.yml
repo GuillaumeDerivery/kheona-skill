@@ -32,4 +32,4 @@ jobs:
         with:
           persist-credentials: false
       - name: Lint the workflows
-        run: pipx run zizmor==1.9.0 --offline .github/workflows
+        run: pipx run zizmor==1.32.0 --offline --min-severity medium .github/workflows

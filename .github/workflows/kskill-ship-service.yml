@@ -79,7 +79,7 @@ jobs:
           broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
 
       - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1  # zizmor: ignore[artipacked] -- pushes with the App token
         with:
           ref: main
           fetch-depth: 0
@@ -107,6 +107,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
     secrets:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -143,7 +144,7 @@ jobs:
 
       # main, whatever pushed: the script and the settings are main's, and a push to prod may predate them.
       - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1  # zizmor: ignore[artipacked] -- pushes with the App token
         with:
           ref: main
           fetch-depth: 0

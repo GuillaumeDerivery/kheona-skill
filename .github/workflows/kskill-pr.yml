@@ -85,6 +85,7 @@ jobs:
     permissions:
       contents: read
       actions: read            # the gate's tested-tree lookup (kskill-tested-tree.sh)
+      id-token: write
     with:
       stack: ${{ inputs.stack }}
 
@@ -132,7 +133,7 @@ jobs:
       # The base branch: Claude's working directory and configuration. The PR head is fetched as objects only.
       - name: Check out the base
         if: steps.token.outputs.ok == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1  # zizmor: ignore[artipacked] -- the next step fetches the PR head
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
@@ -325,7 +326,7 @@ jobs:
 
       # Nothing of the PR runs here: its branch is checked out as files, the output replaced by the artifact.
       - name: Check out the PR's branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1  # zizmor: ignore[artipacked] -- pushes with the App token
         with:
           ref: ${{ github.head_ref }}
           token: ${{ steps.app.outputs.token }}
