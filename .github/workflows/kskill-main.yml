@@ -1,0 +1,29 @@
+# Managed by kheona-skill (templates/.github/workflows/kskill-main-library.yml). Do not edit here: change the template.
+# Trigger: a push to main (a merged PR)
+# Purpose: the library's gate once (a green PR run of the same tree reused)
+# Effect: nothing: reports only (the release is Kheona Skill · Release)
+# What a push to `main` starts in a library (`role: library`): its gate, `.github/workflows/kskill-ci.yml`, called
+# once (a green `Kheona Skill · PR` run of the same tree is reused, kskill-tested-tree.sh). Installed as
+# `.github/workflows/kskill-main.yml`. The release is `Kheona Skill · Release` (kskill-release-please.yml), on the
+# same push; a library meant to be forked also carries `Kheona Skill · Sync upstream` (the notice to its forks).
+# Secrets: KSKILL_APP_ID, KSKILL_APP_PRIVATE_KEY (GitHub App kheona-bot). No .kheona.json keys of its own.
+name: Kheona Skill · Main
+
+on:
+  push:
+    branches: [main]
+
+# No group of its own: the gate (kskill-ci.yml) has its own.
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/kskill-ci.yml
+    permissions:
+      contents: read
+      actions: read            # the tested-tree lookup: a green PR run of this tree is reused (kskill-tested-tree.sh)
+    secrets:
+      KSKILL_APP_ID: ${{ secrets.KSKILL_APP_ID }}
+      KSKILL_APP_PRIVATE_KEY: ${{ secrets.KSKILL_APP_PRIVATE_KEY }}
