@@ -23,7 +23,7 @@
 # override without a `why` is refused, reported as an error, and the default stays).
 # Free plans: every setting here is available on a free plan, private repositories included. GitHub settings that
 # need a paid plan (branch protection, rulesets, native auto-merge) are never read or written.
-# Env: GH_TOKEN, or `gh` signed in; --apply needs admin on the repository (the automation App: Administration write).
+# Env: GH_TOKEN, or `gh` signed in; KSKILL_BOT, the App's bot login, written as the KSKILL_BOT variable; --apply needs admin on the repository (the automation App: Administration write).
 # Exit: 0 when nothing drifts (after --apply: when everything drifted was written), 1 otherwise, 64 on usage.
 set -uo pipefail
 

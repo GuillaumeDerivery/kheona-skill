@@ -8,7 +8,7 @@ Every value comes from the calling repository, set as an Actions variable. Secre
 | Name | Needed by | What |
 |---|---|---|
 | `KSKILL_TOKEN_BROKER_URL` | all | The token broker's address |
-| `KSKILL_BOT` | PR, Claude, Renovate | The App's bot login, `example-app[bot]` |
+| `KSKILL_BOT` | PR, Claude, Renovate | Required, no default: the App's bot login, `example-app[bot]`. `scripts/kskill-repo-settings.sh` writes it from `KSKILL_BOT` in its environment |
 | `KSKILL_LIB_REPO` | a repository with a private library submodule | `owner/library` |
 | `KSKILL_AUTOMERGE` | PR | `false` stops merging automation PRs, a library's release PR excepted |
 | `KSKILL_DIST_REBUILD` | PR | `true` rebuilds a committed output on the PR's branch |

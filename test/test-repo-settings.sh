@@ -46,7 +46,7 @@ good() {
   # Dependabot alerts off: no fixture, so HTTP 404 (GitHub's answer when they are off).
   fix "repos/$1/automated-security-fixes" '{"enabled":false,"paused":false}'
   fix "repos/$1/labels?per_page=100" "$(jq -c '[.settings[] | select(.api == "label") | .label]' "$HERE/config/repo-settings.json")"
-  fix "repos/$1/actions/variables?per_page=100" '{"total_count":0,"variables":[]}'
+  fix "repos/$1/actions/variables?per_page=100" '{"total_count":1,"variables":[{"name":"KSKILL_BOT","value":"example-app[bot]"}]}'
 }
 run() { : > "$LOG"; bash "$SETTINGS" "$@"; }
 j() { jq -c "$1"; }
@@ -144,7 +144,7 @@ check "kheona-skill carries no topic and is not asked to" "$(j '[.ok, ([.setting
 good owner/tpl; kj owner/tpl '{"role":"template","workflows":{"cd":{"templateRepository":"owner/tpl","staging":false,"prod":false}}}'
 out=$(run owner/tpl --json); rc=$?
 check "variables: a template switches the deploys off; no CI on release-please's PR" \
-  "$(j '[.settings[] | select(.api == "variable") | {(.key): .want}] | add' <<<"$out") $(j .drift <<<"$out") $rc" \
+  "$(j '[.settings[] | select(.api == "variable" and .key != "variable_bot") | {(.key): .want}] | add' <<<"$out") $(j .drift <<<"$out") $rc" \
   '{"variable_cd_staging":"false","variable_cd_prod":"false","variable_release_pr":"","variable_release_pr_ci":"false","variable_ci_on_push":"","variable_dist_rebuild":"","variable_automerge":""} ["variable_cd_staging","variable_cd_prod","variable_release_pr_ci"] 1'
 out=$(run owner/tpl --apply --json); rc=$?
 check "variables: --apply creates the missing ones" "$(cat "$LOG") $(j .ok <<<"$out") $rc" \
@@ -153,27 +153,35 @@ POST repos/owner/tpl/actions/variables {"name":"KSKILL_CD_PROD","value":"false"}
 POST repos/owner/tpl/actions/variables {"name":"KSKILL_RELEASE_PR_CI","value":"false"} true 0'
 # Its fork deploys: the inherited templateRepository names the parent, the fork has its own targets.
 good org/tfork true; kj org/tfork '{"role":"template","workflows":{"cd":{"templateRepository":"owner/tpl","staging":false,"prod":{"cluster":"c"}}}}'
-fix "repos/org/tfork/actions/variables?per_page=100" '{"variables":[{"name":"KSKILL_CD_PROD","value":"false"},{"name":"KSKILL_CD_STAGING","value":"no"},{"name":"OTHER","value":"x"}]}'
+fix "repos/org/tfork/actions/variables?per_page=100" '{"variables":[{"name":"KSKILL_CD_PROD","value":"false"},{"name":"KSKILL_CD_STAGING","value":"no"},{"name":"OTHER","value":"x"},{"name":"KSKILL_BOT","value":"example-app[bot]"}]}'
 out=$(run org/tfork --apply --json)
 check "variables: a fork's own prod deploys; stale ones are deleted or corrected" \
-  "$(j '[.settings[] | select(.api == "variable" and .want != "") | .key]' <<<"$out") $(grep variables "$LOG")" \
+  "$(j '[.settings[] | select(.api == "variable" and .key != "variable_bot" and .want != "") | .key]' <<<"$out") $(grep variables "$LOG")" \
   '["variable_cd_staging","variable_release_pr_ci"] PATCH repos/org/tfork/actions/variables/KSKILL_CD_STAGING {"name":"KSKILL_CD_STAGING","value":"false"}
 DELETE repos/org/tfork/actions/variables/KSKILL_CD_PROD
 POST repos/org/tfork/actions/variables {"name":"KSKILL_RELEASE_PR_CI","value":"false"}'
 good org/sw; kj org/sw '{"role":"project","workflows":{"ci":{"runOnPush":false},"automerge":{"enabled":false},"cd":{"staging":{"cluster":"c"},"prod":{"cluster":"c"},"enabled":true}}}'
 out=$(run org/sw --json)
 check "variables: the automerge switch; runOnPush is retired (no variable); a deploying project keeps its deploys" \
-  "$(j '[.settings[] | select(.api == "variable" and .want != "") | .variable]' <<<"$out")" '["KSKILL_RELEASE_PR_CI","KSKILL_AUTOMERGE"]'
+  "$(j '[.settings[] | select(.api == "variable" and .key != "variable_bot" and .want != "") | .variable]' <<<"$out")" '["KSKILL_RELEASE_PR_CI","KSKILL_AUTOMERGE"]'
 good org/cdoff; kj org/cdoff '{"role":"project","workflows":{"cd":{"enabled":false}}}'
 check "variables: workflows.cd.enabled false switches the deploys off" \
-  "$(run org/cdoff --json | j '[.settings[] | select(.api == "variable" and .want != "") | .variable]')" '["KSKILL_CD_STAGING","KSKILL_CD_PROD","KSKILL_RELEASE_PR_CI"]'
+  "$(run org/cdoff --json | j '[.settings[] | select(.api == "variable" and .key != "variable_bot" and .want != "") | .variable]')" '["KSKILL_CD_STAGING","KSKILL_CD_PROD","KSKILL_RELEASE_PR_CI"]'
 good me/lib2; kj me/lib2 '{"role":"library"}'
-check "variables: a library without workflows.cd gets none" "$(run me/lib2 --json | j '[.settings[] | select(.api == "variable" and .want != "")] | length')" 0
+check "variables: a library without workflows.cd gets none" "$(run me/lib2 --json | j '[.settings[] | select(.api == "variable" and .key != "variable_bot" and .want != "")] | length')" 0
 good me/lib3; kj me/lib3 '{"role":"library","workflows":{"distRebuild":{}}}'
-check "variables: workflows.distRebuild switches the PR's dist rebuild on" "$(run me/lib3 --json | j '[.settings[] | select(.api == "variable" and .want != "") | "\(.variable)=\(.want)"]')" '["KSKILL_DIST_REBUILD=true"]'
+check "variables: workflows.distRebuild switches the PR's dist rebuild on" "$(run me/lib3 --json | j '[.settings[] | select(.api == "variable" and .key != "variable_bot" and .want != "") | "\(.variable)=\(.want)"]')" '["KSKILL_DIST_REBUILD=true"]'
 good org/nv; rm -f "$FIX/repos_org_nv_actions_variables?per_page=100.json"; kj org/nv '{"role":"template","workflows":{"cd":{"templateRepository":"org/nv"}}}'
 out=$(run org/nv --json)
 check "variables unreadable: one error, not a drift" "$(j '[(.drift | map(select(startswith("variable_"))) | length), [.errors[].key]]' <<<"$out")" '[0,["variables"]]'
+
+# KSKILL_BOT: written from the environment, no default; unset, it is left alone (never deleted).
+good org/bot; fix "repos/org/bot/actions/variables?per_page=100" '{"variables":[{"name":"KSKILL_BOT","value":"old-app[bot]"}]}'
+out=$(KSKILL_BOT='new-app[bot]' run org/bot --apply --json)
+check "bot variable: corrected from the environment" "$(grep KSKILL_BOT "$LOG")" \
+  'PATCH repos/org/bot/actions/variables/KSKILL_BOT {"name":"KSKILL_BOT","value":"new-app[bot]"}'
+: > "$LOG"; env -u KSKILL_BOT bash "$SETTINGS" org/bot --apply --json >/dev/null 2>&1
+check "bot variable: unset in the environment, never deleted" "$(grep -c KSKILL_BOT "$LOG")" 0
 
 # Unreadable and refused.
 good org/e; touch "$FIX/repos_org_e_actions_permissions_workflow.403"
