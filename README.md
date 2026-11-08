@@ -18,7 +18,7 @@ Shared CI, delivery and repository automation for GitHub, built to work the same
 
 ## Five-minute adoption
 
-See [docs/adoption.md](docs/adoption.md). In short: write `.kheona.json`, run the generator, set the variables, open a PR.
+See [docs/adoption.md](docs/adoption.md). Once per owner: your own GitHub App and token broker. Then per repository: write `.kheona.json`, run the generator, set `KSKILL_TOKEN_BROKER_URL` and `KSKILL_BOT` (your App's `<app-slug>[bot]`, no default), open a PR.
 
 ```bash
 node scripts/kskill-callers.mjs write --repo ../my-repo --self owner/kheona-skill --sha <40-hex-commit> --version v2.0.0

@@ -3,11 +3,11 @@
 
 # Variables
 
-Every value comes from the calling repository, set as an Actions variable. Secrets are in the [README](../README.md#secrets); `.github/callers.json` lists what each workflow takes.
+Every value comes from the calling repository, set as an Actions variable on the repository itself (on GitHub Free, organization variables don't reach private repositories). Secrets are in the [README](../README.md#secrets); `.github/callers.json` lists what each workflow takes.
 
 | Name | Needed by | What |
 |---|---|---|
-| `KSKILL_TOKEN_BROKER_URL` | all | The token broker's address |
+| `KSKILL_TOKEN_BROKER_URL` | all | Required: your token broker's address |
 | `KSKILL_BOT` | PR, Claude, Renovate | Required, no default: the App's bot login, `example-app[bot]`. `scripts/kskill-repo-settings.sh` writes it from `KSKILL_BOT` in its environment |
 | `KSKILL_LIB_REPO` | a repository with a private library submodule | `owner/library` |
 | `KSKILL_AUTOMERGE` | PR | `false` stops merging automation PRs, a library's release PR excepted |

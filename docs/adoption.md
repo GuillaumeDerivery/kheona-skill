@@ -3,6 +3,16 @@
 
 # Adopting kheona-skill
 
+## Once per owner (organization or account)
+
+Every owner runs its own GitHub App and its own token broker. Nothing is shared: an App's key mints tokens for every installation of that App, so one App can't safely serve two people's brokers.
+
+1. **A GitHub App**, private to the owner. No webhook. Repository permissions, read and write: Actions, Variables, Administration, Checks, Commit statuses, Contents, Issues, Pull requests, Workflows; read: Metadata, Dependabot alerts. Install it on the repositories that use kheona-skill. Its bot login is `<app-slug>[bot]`.
+2. **The token broker**, a Cloudflare Worker (free plan) holding the App's key: [terraform/token-broker/README.md](../terraform/token-broker/README.md). Its policy lists `owner/kheona-skill` (the workflows' repository) in `workflowRepositories` and the owner in `owners`.
+3. **No organization variables:** on GitHub Free they don't reach private repositories, so every value below is set on each repository.
+
+## Each repository
+
 1. **`.kheona.json`** at the root: at least `{"role": "project"}`. A service adds its deploy:
 
    ```json
@@ -25,7 +35,7 @@
    ```
 
 4. **`renovate.json`:** `{"extends": ["github>owner/kheona-skill//renovate/default#v2.0.0"]}`: the generator pins the preset at the callers' version.
-5. **Variables and secrets:** see [secrets.md](secrets.md) and the [README](../README.md#secrets). Callers pass secrets by name; `secrets: inherit` does not cross owners. The App key is never one of them.
+5. **Variables and secrets:** `KSKILL_TOKEN_BROKER_URL` (your broker) and `KSKILL_BOT` (your App's `<app-slug>[bot]`) are required; neither has a default. `KSKILL_BOT=<app-slug>[bot] scripts/kskill-repo-settings.sh owner/repo --apply` writes it with the other settings. The rest: see [secrets.md](secrets.md) and the [README](../README.md#secrets). Callers pass secrets by name; `secrets: inherit` does not cross owners. The App key is never one of them.
 6. **Topic:** add `kheona-skill` or `kskill`. A library's consumers add the topic the library's `.kheona.json` names.
 7. **Prove it:** open a test PR. It must pass CI and review, and merge.
 
