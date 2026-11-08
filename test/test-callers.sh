@@ -56,7 +56,9 @@ fi
 echo '{"workflows":{"cd":{"target":"custom","custom":{"workflow":"kskill-x.yml"},"prod":{}}}}' > "$R/.kheona.json"
 out=$(node "$C" write --repo "$R" --self owner/kheona-skill --sha $SHA --version v1.2.3 2>&1); check "custom workflow named kskill-*: refused" "$?" '^1$'
 R=$T/lib; mkdir -p "$R"; echo '{}' > "$R/package.json"; echo '{"role":"library"}' > "$R/.kheona.json"; w "$R"
-check "a library: release-please, no deploy" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-claude.yml kskill-inbox.yml kskill-main.yml kskill-pr.yml kskill-release-please.yml $'
+check "a library: release-please and its forks' notice, no deploy" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-claude.yml kskill-inbox.yml kskill-main.yml kskill-pr.yml kskill-release-please.yml kskill-sync-upstream.yml $'
+R=$T/nostack; mkdir -p "$R"; echo '{"role":"project"}' > "$R/.kheona.json"; w "$R"
+check "no stack: @claude, the inbox and release-please, no CI" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-claude.yml kskill-inbox.yml kskill-release-please.yml $'
 R=$T/inf; mkdir -p "$R"; echo '{"role":"infra"}' > "$R/.kheona.json"; w "$R"
 check "infra: the PR alone" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-pr.yml $'
 check "... with the infra gate" "$(grep -c 'stack: infra' "$R/.github/workflows/kskill-pr.yml")" '^1$'

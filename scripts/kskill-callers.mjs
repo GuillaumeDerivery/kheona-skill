@@ -38,7 +38,8 @@ export function needed() {
   const stack = stackOf();
   const role = CFG.role || 'project';
   const out = [];
-  if (!stack) return { stack, files: out };
+  // No stack: nothing to build or test, but @claude, the inbox and release-please need none.
+  if (!stack) return { stack, files: ['kskill-claude.yml', 'kskill-inbox.yml', 'kskill-release-please.yml'] };
   out.push('kskill-pr.yml');
   if (stack === 'infra') return { stack, files: out };
   out.push('kskill-claude.yml', 'kskill-inbox.yml', 'kskill-release-please.yml');
@@ -50,7 +51,8 @@ export function needed() {
     out.push('kskill-main-service.yml');
     if (CFG.workflows?.cd?.staging || CFG.workflows?.cd?.prod) out.push('kskill-deploy.yml');
   }
-  if (role === 'template') out.push('kskill-sync-upstream.yml');
+  // A template or a library may be forked: its forks get the notice of each change (a fork with none is a no-op).
+  if (role === 'template' || role === 'library') out.push('kskill-sync-upstream.yml');
   return { stack, files: out };
 }
 
