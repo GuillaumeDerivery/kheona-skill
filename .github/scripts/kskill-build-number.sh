@@ -6,8 +6,8 @@
 # lets iOS and Android drift apart). Both store lanes run it on the same commit, so both get one number.
 #   BUILD_NUMBER = git rev-list --count HEAD + KSKILL_BUILD_NUMBER_OFFSET   (offset: .kheona.json, default 0)
 # BUILD_NUMBER_OVERRIDE (the repository variable of the same name), when set, wins as is, offset not added:
-# the escape hatch for re-shipping an unchanged commit. Clear it again after the run; an empty commit on
-# `prod` does the same and leaves a trace in git.
+# the escape hatch for re-shipping an unchanged commit. Clear it again after the run; a new release does the same
+# and leaves a trace in git.
 # Fails on a shallow clone (the count would be 1, which every store rejects) and on a number past Android's
 # versionCode ceiling. Exports BUILD_NUMBER to $GITHUB_ENV when set, and prints it.
 # Usage: bash .github/scripts/kskill-build-number.sh

@@ -9,7 +9,7 @@
 #           is the PR merged into its base: the tree it tests).
 #   find    (any other run): writes reused=true|false, and with true run=<url> and pr=<number>. Reuses only when
 #           every condition holds, else runs the gate in full ("never skip when unsure"): the event is a push (a
-#           called run's event is its caller's) to the default branch (never `prod`: shipping always runs the full
+#           called run's event is its caller's) to the default branch (never a version tag: a release always runs the full
 #           gate; never a dispatch); an unexpired artifact of that name belongs to a `pull_request` run of
 #           .github/workflows/kskill-pr.yml from this repository; and that run's CI jobs (`CI / ...`) are all
 #           completed, each success or skipped, one at least a success. Any API error: the gate runs.
@@ -35,7 +35,7 @@ fi
 full() { echo "The gate runs in full: $1."; echo "reused=false" >> "$out"; exit 0; }
 [ "${EVENT_NAME:-}" = push ] || full "a ${EVENT_NAME:-?} run never reuses a PR run"
 [ -n "${DEFAULT_BRANCH:-}" ] && [ "${GITHUB_REF:-}" = "refs/heads/$DEFAULT_BRANCH" ] ||
-  full "only a push to the default branch reuses a PR run (${GITHUB_REF:-?}: prod and every other ref run in full)"
+  full "only a push to the default branch reuses a PR run (${GITHUB_REF:-?}: a version tag and every other ref run in full)"
 [ -n "$tree" ] || full "no checked-out tree"
 
 ids=$(gh api "repos/$GH_REPO/actions/artifacts?name=kskill-tested-tree-$tree&per_page=30" \

@@ -18,6 +18,7 @@ jobs:
       contents: read
       actions: read
       id-token: write
+      pull-requests: read
     uses: ./.github/workflows/kskill-deploy.yml
     with:
       stack: node

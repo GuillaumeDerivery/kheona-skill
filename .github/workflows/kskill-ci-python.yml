@@ -12,9 +12,9 @@
 # filtered by base branch), by `Kheona Skill · Main` on every push to main (kskill-main.yml) and by the production
 # deploy (`uses: ./.github/workflows/kskill-ci.yml`, where every repository installs its stack's CI, `needs:`); by hand.
 # Once per tree (kskill-tested-tree.sh): a push to the default branch (kskill-main.yml's call) whose tree a green
-# `Kheona Skill · PR` run tested, runs only its first job; `prod` and dispatches always run in full.
-# Not on the release PR (head kskill/release): its head is main's commit or tree, tested on main, and shipping runs the
-# gate again; the job-level `if:` skips it before any runner starts.
+# `Kheona Skill · PR` run tested, runs only its first job; a version tag and dispatches always run in full.
+# Not on release-please's PR outside a library (vars.KSKILL_RELEASE_PR_CI): a person merges it, and the version tag
+# runs this gate in full before production; the job-level `if:` skips it before any runner starts.
 # It never pushes, publishes or deploys anything; it only reads. Secrets read: KSKILL_TOKEN_BROKER_URL (the automation App, repository check only).
 # Python version: read from .python-version, Pipfile [requires] or pyproject requires-python (never set here).
 # Tools (ruff, black, pylint, mypy, pip-audit, pytest-cov) come from the repository's locked dev packages,
@@ -31,8 +31,8 @@
 #                                                     the repository's own --cov-fail-under may be stricter
 #   docker         boolean                   true when ./Dockerfile exists   build the image, never push
 # .kheona.json `phase` (kskill-phase.sh): "bootstrap" passes a run with no test collected and reports the
-# coverage floor without failing on it; "established" (the default) gates both. A run on `prod` (the deploy's gate on
-# a production push) fails while the repository is in bootstrap.
+# coverage floor without failing on it; "established" (the default) gates both. A run on a version tag (the production
+# deploy's gate) fails while the repository is in bootstrap.
 name: Kheona Skill · CI
 
 on:
@@ -67,8 +67,8 @@ env:
 jobs:
   config:
     name: Read the configuration
-    # Not on the release PR: its head is main's commit (or tree), tested on main; shipping runs this gate again.
-    if: github.head_ref != 'kskill/release'
+    # Not on release-please's PR outside a library (KSKILL_RELEASE_PR_CI): the version tag runs this gate in full.
+    if: ${{ !(startsWith(github.head_ref, 'release-please--') && vars.KSKILL_RELEASE_PR_CI == 'false') }}
     permissions:
       contents: read
       actions: read
@@ -98,7 +98,7 @@ jobs:
 
       # once per tree: a pull_request run records the tree it tests; a push to the default branch whose tree a
       # green Kheona Skill · PR run already tested skips the rest of this gate (kskill-tested-tree.sh says exactly when;
-      # never on prod, never when unsure).
+      # never on a tag, never when unsure).
       - name: Record the tested tree
         id: tree
         if: github.event_name == 'pull_request'
@@ -132,11 +132,11 @@ jobs:
           fork: ${{ github.event.repository.fork }}
           sentry-project: ${{ vars.SENTRY_PROJECT }}
 
-      # bootstrap or established; a production push (the deploy's gate on `prod`) refuses bootstrap.
+      # bootstrap or established; a release (the deploy's gate on a version tag) refuses bootstrap.
       - name: Read the phase
         id: phase
         run: |
-          if [ "$GITHUB_REF" = refs/heads/prod ]; then bash "$KSKILL_HOME/.github/scripts/kskill-phase.sh" --ship; else bash "$KSKILL_HOME/.github/scripts/kskill-phase.sh"; fi
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then bash "$KSKILL_HOME/.github/scripts/kskill-phase.sh" --ship; else bash "$KSKILL_HOME/.github/scripts/kskill-phase.sh"; fi
 
       - name: Read .kheona.json and the Python version
         id: read

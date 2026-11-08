@@ -8,14 +8,20 @@
         "region": "eu-west-1",
         "cluster": "example-cluster",
         "namespace": "example-staging",
-        "deployments": ["example-app"]
+        "deployments": [
+          "example-app"
+        ]
       }
     },
     "local": {
       "ci.yml": "this repository's own gate",
       "self-test.yml": "runs the shared workflows from inside, dry run",
       "guard.yml": "the Rule 0 check",
-      "scorecard.yml": "OpenSSF Scorecard"
+      "scorecard.yml": "OpenSSF Scorecard",
+      "release.yml": "this repository's release: release-please, a person merges"
+    },
+    "releasePlease": {
+      "merge": "person"
     }
   }
 }

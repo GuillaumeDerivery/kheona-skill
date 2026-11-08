@@ -76,18 +76,18 @@ out=$(run org/b --json); rc=$?
 check "drift: a false value is read as false, not as missing" \
   "$(j '[.settings[] | select(.key == "allow_update_branch" or .key == "has_wiki") | .have]' <<<"$out")" '[false,true]'
 check "drift: listed"                   "$(j .drift <<<"$out")" \
-  '["allow_squash_merge","delete_branch_on_merge","allow_update_branch","has_wiki","default_workflow_permissions","can_approve_pull_request_reviews","vulnerability_alerts","automated_security_fixes"]'
-check "drift: no role, so merge commits and rebase are not managed" \
-  "$(j '[.settings[].key] | map(select(. == "allow_merge_commit" or . == "allow_rebase_merge"))' <<<"$out")" '[]'
+  '["allow_squash_merge","allow_merge_commit","allow_rebase_merge","delete_branch_on_merge","allow_update_branch","has_wiki","default_workflow_permissions","can_approve_pull_request_reviews","vulnerability_alerts","automated_security_fixes"]'
+check "drift: any repository but a fork is squash only (release-please reads one commit per PR)" \
+  "$(j '[.settings[] | select(.key == "allow_merge_commit" or .key == "allow_rebase_merge") | .want]' <<<"$out")" '[false,false]'
 check "drift: exit 1"                   "$rc" 1
 check "drift: nothing written without --apply" "$(cat "$LOG")" ''
 out=$(run org/b --apply --json); rc=$?
 check "--apply: one write per API, Dependabot's security updates off before its alerts" "$(cat "$LOG")" \
-'PATCH repos/org/b {"allow_squash_merge":true,"allow_update_branch":true,"delete_branch_on_merge":true,"has_wiki":false}
+'PATCH repos/org/b {"allow_merge_commit":false,"allow_rebase_merge":false,"allow_squash_merge":true,"allow_update_branch":true,"delete_branch_on_merge":true,"has_wiki":false}
 PUT repos/org/b/actions/permissions/workflow {"can_approve_pull_request_reviews":false,"default_workflow_permissions":"read"}
 DELETE repos/org/b/automated-security-fixes
 DELETE repos/org/b/vulnerability-alerts'
-check "--apply: everything applied, ok, exit 0" "$(j '[.ok, (.applied | length)]' <<<"$out") $rc" '[true,8] 0'
+check "--apply: everything applied, ok, exit 0" "$(j '[.ok, (.applied | length)]' <<<"$out") $rc" '[true,10] 0'
 # Turned on by an override (with its why): the alerts first, GitHub refuses the security updates without them.
 good org/v; kj org/v '{"settings":{"vulnerability_alerts":{"value":true,"why":"t"},"automated_security_fixes":{"value":true,"why":"t"}}}'
 out=$(run org/v --apply --json)
@@ -113,7 +113,7 @@ check "labels unreadable: an error, not a drift" "$(j '[(.drift | map(select(sta
 good me/lib; kj me/lib '{"role":"library"}'
 fix repos/me/lib '{"full_name":"me/lib","fork":false,"topics":["kheona-skill"],"allow_squash_merge":true,"allow_merge_commit":true,"allow_rebase_merge":true,"delete_branch_on_merge":true,"allow_update_branch":true,"has_wiki":false}'
 out=$(run me/lib --json)
-check "library: squash only"            "$(j '[.drift, ([.settings[] | select(.key == "allow_merge_commit")][0].source)]' <<<"$out")" '[["allow_merge_commit","allow_rebase_merge"],"role:library"]'
+check "library: squash only"            "$(j '[.drift, ([.settings[] | select(.key == "allow_merge_commit")][0].source)]' <<<"$out")" '[["allow_merge_commit","allow_rebase_merge"],"default"]'
 good org/fork true; kj org/fork '{"role":"template"}'
 fix repos/org/fork '{"full_name":"org/fork","fork":true,"topics":["kheona-skill"],"allow_squash_merge":true,"allow_merge_commit":false,"allow_rebase_merge":true,"delete_branch_on_merge":true,"allow_update_branch":true,"has_wiki":false}'
 out=$(run org/fork --json)
@@ -143,29 +143,30 @@ check "kheona-skill carries no topic and is not asked to" "$(j '[.ok, ([.setting
 # Actions variables: derived from .kheona.json, "false" where a workflow is switched off, absent otherwise.
 good owner/tpl; kj owner/tpl '{"role":"template","workflows":{"cd":{"templateRepository":"owner/tpl","staging":false,"prod":false}}}'
 out=$(run owner/tpl --json); rc=$?
-check "variables: a template switches the deploy and the release PR off" \
+check "variables: a template switches the deploys off; no CI on release-please's PR" \
   "$(j '[.settings[] | select(.api == "variable") | {(.key): .want}] | add' <<<"$out") $(j .drift <<<"$out") $rc" \
-  '{"variable_cd_staging":"false","variable_cd_prod":"false","variable_release_pr":"false","variable_ci_on_push":"","variable_dist_rebuild":"","variable_automerge":""} ["variable_cd_staging","variable_cd_prod","variable_release_pr"] 1'
+  '{"variable_cd_staging":"false","variable_cd_prod":"false","variable_release_pr":"","variable_release_pr_ci":"false","variable_ci_on_push":"","variable_dist_rebuild":"","variable_automerge":""} ["variable_cd_staging","variable_cd_prod","variable_release_pr_ci"] 1'
 out=$(run owner/tpl --apply --json); rc=$?
 check "variables: --apply creates the missing ones" "$(cat "$LOG") $(j .ok <<<"$out") $rc" \
 'POST repos/owner/tpl/actions/variables {"name":"KSKILL_CD_STAGING","value":"false"}
 POST repos/owner/tpl/actions/variables {"name":"KSKILL_CD_PROD","value":"false"}
-POST repos/owner/tpl/actions/variables {"name":"KSKILL_RELEASE_PR","value":"false"} true 0'
+POST repos/owner/tpl/actions/variables {"name":"KSKILL_RELEASE_PR_CI","value":"false"} true 0'
 # Its fork deploys: the inherited templateRepository names the parent, the fork has its own targets.
 good org/tfork true; kj org/tfork '{"role":"template","workflows":{"cd":{"templateRepository":"owner/tpl","staging":false,"prod":{"cluster":"c"}}}}'
 fix "repos/org/tfork/actions/variables?per_page=100" '{"variables":[{"name":"KSKILL_CD_PROD","value":"false"},{"name":"KSKILL_CD_STAGING","value":"no"},{"name":"OTHER","value":"x"}]}'
 out=$(run org/tfork --apply --json)
-check "variables: a fork's own prod deploys and its release PR runs; stale ones are deleted or corrected" \
+check "variables: a fork's own prod deploys; stale ones are deleted or corrected" \
   "$(j '[.settings[] | select(.api == "variable" and .want != "") | .key]' <<<"$out") $(grep variables "$LOG")" \
-  '["variable_cd_staging"] PATCH repos/org/tfork/actions/variables/KSKILL_CD_STAGING {"name":"KSKILL_CD_STAGING","value":"false"}
-DELETE repos/org/tfork/actions/variables/KSKILL_CD_PROD'
+  '["variable_cd_staging","variable_release_pr_ci"] PATCH repos/org/tfork/actions/variables/KSKILL_CD_STAGING {"name":"KSKILL_CD_STAGING","value":"false"}
+DELETE repos/org/tfork/actions/variables/KSKILL_CD_PROD
+POST repos/org/tfork/actions/variables {"name":"KSKILL_RELEASE_PR_CI","value":"false"}'
 good org/sw; kj org/sw '{"role":"project","workflows":{"ci":{"runOnPush":false},"automerge":{"enabled":false},"cd":{"staging":{"cluster":"c"},"prod":{"cluster":"c"},"enabled":true}}}'
 out=$(run org/sw --json)
-check "variables: the automerge switch; runOnPush is retired (no variable); a deploying project keeps its deploy and release PR" \
-  "$(j '[.settings[] | select(.api == "variable" and .want != "") | .variable]' <<<"$out")" '["KSKILL_AUTOMERGE"]'
+check "variables: the automerge switch; runOnPush is retired (no variable); a deploying project keeps its deploys" \
+  "$(j '[.settings[] | select(.api == "variable" and .want != "") | .variable]' <<<"$out")" '["KSKILL_RELEASE_PR_CI","KSKILL_AUTOMERGE"]'
 good org/cdoff; kj org/cdoff '{"role":"project","workflows":{"cd":{"enabled":false}}}'
 check "variables: workflows.cd.enabled false switches the deploys off" \
-  "$(run org/cdoff --json | j '[.settings[] | select(.api == "variable" and .want != "") | .variable]')" '["KSKILL_CD_STAGING","KSKILL_CD_PROD","KSKILL_RELEASE_PR"]'
+  "$(run org/cdoff --json | j '[.settings[] | select(.api == "variable" and .want != "") | .variable]')" '["KSKILL_CD_STAGING","KSKILL_CD_PROD","KSKILL_RELEASE_PR_CI"]'
 good me/lib2; kj me/lib2 '{"role":"library"}'
 check "variables: a library without workflows.cd gets none" "$(run me/lib2 --json | j '[.settings[] | select(.api == "variable" and .want != "")] | length')" 0
 good me/lib3; kj me/lib3 '{"role":"library","workflows":{"distRebuild":{}}}'

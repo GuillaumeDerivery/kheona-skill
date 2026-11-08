@@ -12,7 +12,12 @@ w() { node "$C" write --repo "$1" --self owner/kheona-skill --sha $SHA --version
 # a service
 R=$T/svc; mkdir -p "$R"; echo '{}' > "$R/package.json"
 echo '{"role":"project","workflows":{"cd":{"staging":{},"prod":{}}}}' > "$R/.kheona.json"; w "$R"
-check "service: its callers" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-claude.yml kskill-deploy.yml kskill-inbox.yml kskill-main.yml kskill-pr.yml kskill-ship.yml $'
+check "service: its callers" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-claude.yml kskill-deploy.yml kskill-inbox.yml kskill-main.yml kskill-pr.yml kskill-release-please.yml $'
+check "production deploy: pinned by the version tag" "$(grep 'uses:' "$R/.github/workflows/kskill-deploy.yml")" "uses: owner/kheona-skill/.github/workflows/kskill-deploy.yml@v1.2.3$"
+check "... started by a version tag" "$(grep -A1 'push:' "$R/.github/workflows/kskill-deploy.yml" | tail -1)" 'tags: \["v\*"\]'
+check "... no environment input" "$(grep -c 'environment' "$R/.github/workflows/kskill-deploy.yml")" '^0$'
+check "... reads the release PR" "$(grep -c 'pull-requests: read' "$R/.github/workflows/kskill-deploy.yml")" '^1$'
+check "no custom job by default" "$(grep -c 'custom:' "$R/.github/workflows/kskill-deploy.yml")" '^0$'
 check "pinned by SHA, the tag as a comment" "$(grep 'uses:' "$R/.github/workflows/kskill-pr.yml")" "uses: owner/kheona-skill/.github/workflows/kskill-pr.yml@$SHA # v1.2.3$"
 check "the stack is an input" "$(grep -c 'stack: node' "$R/.github/workflows/kskill-pr.yml")" '^1$'
 check "grants the OIDC identity" "$(grep -c 'id-token: write' "$R/.github/workflows/kskill-pr.yml")" '^1$'
@@ -29,11 +34,32 @@ w "$R"; : > "$R/.github/workflows/kskill-old.yml"
 out=$(node "$C" check --repo "$R" --json); check "an unknown kskill file fails" "$?:$out" '^1:.*unknown'
 # others
 R=$T/fl; mkdir -p "$R"; : > "$R/pubspec.yaml"; echo '{"role":"project"}' > "$R/.kheona.json"; w "$R"
-check "Flutter: delivery" "$(ls "$R/.github/workflows" | tr '\n' ' ')" 'kskill-deliver.yml .*kskill-ship.yml'
+check "Flutter: delivery, no ship" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-claude.yml kskill-deliver.yml kskill-inbox.yml kskill-main.yml kskill-pr.yml kskill-release-please.yml $'
+check "... delivery pinned by the version tag" "$(grep 'uses:' "$R/.github/workflows/kskill-deliver.yml")" '@v1.2.3$'
+node "$C" check --repo "$R"; check "Flutter: check passes with a tag pin" "$?" '^0$'
+sed -i.bak 's/@v1.2.3$/@v1.2.4/' "$R/.github/workflows/kskill-deliver.yml"
+out=$(node "$C" check --repo "$R" --json); check "callers at two versions fail" "$?:$out" '^1:.*different versions'
+R=$T/rn; mkdir -p "$R"; echo '{}' > "$R/package.json"; echo '{"role":"library"}' > "$R/.kheona.json"
+echo '{"extends": ["github>owner/kheona-skill//renovate/default"]}' > "$R/renovate.json"; w "$R"
+check "the preset is pinned at the version" "$(cat "$R/renovate.json")" 'renovate/default#v1.2.3"'
+node "$C" check --repo "$R"; check "... and the check passes" "$?" '^0$'
+sed -i.bak 's/#v1.2.3//' "$R/renovate.json"
+out=$(node "$C" check --repo "$R" --json); check "a preset on the default branch fails" "$?:$out" '^1:.*renovate.json'
+R=$T/cu; mkdir -p "$R"; echo '{}' > "$R/package.json"
+echo '{"role":"project","workflows":{"cd":{"target":"custom","custom":{"workflow":"ship-it.yml"},"staging":{},"prod":{}}}}' > "$R/.kheona.json"; w "$R"
+check "custom target: the deploy hands over" "$(grep -A8 '^  custom:' "$R/.github/workflows/kskill-deploy.yml" | tr '\n' ' ')" "if: needs.call.outputs.deploy == 'custom'.*uses: ./.github/workflows/ship-it.yml"
+check "... main hands over staging too" "$(grep -c 'uses: ./.github/workflows/ship-it.yml' "$R/.github/workflows/kskill-main.yml")" '^1$'
+node "$C" check --repo "$R"; check "custom target: check passes" "$?" '^0$'
+if command -v actionlint >/dev/null; then
+  out=$(cd "$R" && actionlint -ignore 'could not read reusable workflow' -ignore 'ship-it.yml' .github/workflows/kskill-*.yml 2>&1); check "custom callers lint" "$?:$out" '^0:'
+fi
+echo '{"workflows":{"cd":{"target":"custom","custom":{"workflow":"kskill-x.yml"},"prod":{}}}}' > "$R/.kheona.json"
+out=$(node "$C" write --repo "$R" --self owner/kheona-skill --sha $SHA --version v1.2.3 2>&1); check "custom workflow named kskill-*: refused" "$?" '^1$'
 R=$T/lib; mkdir -p "$R"; echo '{}' > "$R/package.json"; echo '{"role":"library"}' > "$R/.kheona.json"; w "$R"
 check "a library: release-please, no deploy" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-claude.yml kskill-inbox.yml kskill-main.yml kskill-pr.yml kskill-release-please.yml $'
 R=$T/inf; mkdir -p "$R"; echo '{"role":"infra"}' > "$R/.kheona.json"; w "$R"
 check "infra: the PR alone" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-pr.yml $'
 check "... with the infra gate" "$(grep -c 'stack: infra' "$R/.github/workflows/kskill-pr.yml")" '^1$'
-out=$(node "$C" write --repo "$T" --self owner/kheona-skill --sha abc --version v1 2>&1); check "a short SHA is refused" "$?" '^64$'
+out=$(node "$C" write --repo "$T" --self owner/kheona-skill --sha abc --version v1.2.3 2>&1); check "a short SHA is refused" "$?" '^64$'
+out=$(node "$C" write --repo "$T" --self owner/kheona-skill --sha $SHA --version v1 2>&1); check "a version that is not vX.Y.Z is refused" "$?" '^64$'
 echo "$pass passed, $failed failed"; [ "$failed" = 0 ]

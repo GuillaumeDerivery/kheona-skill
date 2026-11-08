@@ -75,8 +75,8 @@ env:
 jobs:
   check:
     name: Check the Terraform and the manifests
-    # Not on the release PR (an infra repository has none; kept for every CI's shape).
-    if: github.head_ref != 'kskill/release'
+    # Not on release-please's PR outside a library (an infra repository has none; kept for every CI's shape).
+    if: ${{ !(startsWith(github.head_ref, 'release-please--') && vars.KSKILL_RELEASE_PR_CI == 'false') }}
     permissions:
       contents: read
       id-token: write

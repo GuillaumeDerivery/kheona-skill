@@ -71,7 +71,6 @@ while IFS=$'\t' read -r path message; do
   rec --arg p "$path" --arg m "$message" '{kind: "callers", path: $p, message: $m}'
   fail "$path" "$message"
 done < <(jq -r '.problems[]? | [.path, .message] | @tsv' <<<"$callers")
-SHIPS=$(jq -r '.ships // false' <<<"$callers")
 if [ -n "$stack" ] || [ "$role" = infra ]; then
   if [ "${KSKILL_FORK:-false}" != true ] && { [ ! -f renovate.json ] || ! grep -q "/kheona-skill//renovate/" renovate.json; }; then
     fail renovate.json "must extend this repository's Renovate preset"
@@ -88,7 +87,6 @@ if [ -n "$stack" ]; then
   [ "$stack" = node ] && [ -n "$(cfg .workflows.mutation)" ] && JOBS+=(mutation)
   [ "$stack" = flutter ] && [ "$fork" != true ] && [ "$(cfg .workflows.refreshFlutter.enabled)" != false ] && JOBS+=(refresh-flutter)
   [ "$stack" = flutter ] && JOBS+=(security-scan)
-  [ "$SHIPS" = true ] && JOBS+=(release-pr)
 fi
 for j in ${JOBS[@]+"${JOBS[@]}"}; do rec --arg j "$j" '{kind: "job", job: $j}'; done
 # 3. Workflows that are not templates are declared, with a reason.

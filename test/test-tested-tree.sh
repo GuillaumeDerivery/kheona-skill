@@ -59,7 +59,7 @@ check "... the PR"                                        "$out" '^pr=7$'
 check "... a merge job still running does not matter"     "$out" 'the rest of this gate is skipped'
 check "a pull_request run never reuses"                   "$(find_ EVENT_NAME=pull_request)" '^reused=false$'
 check "a dispatch never reuses"                           "$(find_ EVENT_NAME=workflow_dispatch)" '^reused=false$'
-check "prod never reuses: shipping runs the full gate"    "$(find_ GITHUB_REF=refs/heads/prod)" '^reused=false$'
+check "a version tag never reuses: production runs the full gate" "$(find_ GITHUB_REF=refs/tags/v1.2.3)" '^reused=false$'
 check "no default branch known: full"                     "$(find_ DEFAULT_BRANCH=)" '^reused=false$'
 reset; artifact ""
 check "no artifact for this tree: full"                   "$(find_)" 'no Kheona Skill · PR run tested tree'
