@@ -8,6 +8,9 @@
 // Env:   KSKILL_GUARD_LIST, the path of the list: one term a line, case-insensitive, # comments and blank lines ignored.
 //        Or KSKILL_GUARD_TERMS, the same text (a secret).
 // --self: that exact string is removed before searching, so the repository may name itself; its owner alone stays forbidden.
+// Authorized authors, whose identity (name and email) is not scanned, their commit messages still are: the owner's own
+// GitHub identity (GitHub writes it on a merge), and the repository's own App, named after it: `<name>[bot]` with its
+// noreply address `<id>+<name>[bot]@users.noreply.github.com` (release-please commits as the App).
 // Exit 0 clean, 1 a hit, 64 misuse (no list: a guard that reads nothing must never pass).
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -28,6 +31,9 @@ const accountId = /(?<![0-9])(?!111122223333)[0-9]{12}(?![0-9])/;
 const selfLower = self.toLowerCase();
 const owner = selfLower.split('/')[0];
 const ownerEmail = new RegExp(`^[0-9]+\\+${owner.replace(/[^a-z0-9-]/g, '')}@users\\.noreply\\.github\\.com$`, 'i');
+const appName = selfLower.split('/')[1]?.replace(/[^a-z0-9-]/g, '') || '';
+const appEmail = appName ? new RegExp(`^[0-9]+\\+${appName}\\[bot\\]@users\\.noreply\\.github\\.com$`, 'i') : null;
+const authorized = (name, email) => ownerEmail.test(email) || (appEmail && appEmail.test(email) && name.toLowerCase() === `${appName}[bot]`);
 const hits = [];
 function scan(where, text) {
   text.split('\n').forEach((line, i) => {
@@ -49,9 +55,9 @@ if (!argv.includes('--no-files')) {
 }
 if (range) {
   for (const sha of git('rev-list', range).split('\n').filter(Boolean)) {
-    // The owner's own GitHub identity may author and commit here: GitHub writes it on a merge. Any other identity is scanned.
+    // An authorized author's identity is not scanned (above); any other identity is.
     const [an, ae, cn, ce] = git('show', '-s', '--format=%an%n%ae%n%cn%n%ce', sha).split('\n');
-    const people = [[an, ae], [cn, ce]].filter(([, email]) => !ownerEmail.test(email)).flat();
+    const people = [[an, ae], [cn, ce]].filter(([name, email]) => !authorized(name, email)).flat();
     scan(`commit ${sha.slice(0, 12)}`, [...people, git('show', '-s', '--format=%B', sha)].join('\n'));
   }
 }
