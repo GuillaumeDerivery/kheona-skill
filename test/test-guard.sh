@@ -53,6 +53,10 @@ check "the repository's own App may commit"            "$(app 'chore: release 2.
 check "... its message is still scanned"                "$(app 'SecretCorp' 'kheona-skill[bot] <4242+kheona-skill[bot]@users.noreply.github.com>')" '^1$'
 check "... another App's identity is scanned"           "$(app 'chore: x' 'other[bot] <4242+other[bot]@users.noreply.github.com>')" '^1$'
 check "... the App's address under another name is not" "$(app 'chore: x' 'SecretCorp <4242+kheona-skill[bot]@users.noreply.github.com>')" '^1$'
+ME='Me <1+me@users.noreply.github.com>'
+check "a squash merge's trailer crediting the App passes" "$(app $'chore: release 2.0.0 (#13)\n\nCo-authored-by: kheona-skill[bot] <4242+kheona-skill[bot]@users.noreply.github.com>' "$ME")" '^0$'
+check "... another App's trailer is scanned"              "$(app $'chore: x\n\nCo-authored-by: other[bot] <4242+other[bot]@users.noreply.github.com>' "$ME")" '^1$'
+check "... a term elsewhere in that message still hits"   "$(app $'SecretCorp\n\nCo-authored-by: kheona-skill[bot] <4242+kheona-skill[bot]@users.noreply.github.com>' "$ME")" '^1$'
 out=$(GITHUB_ACTIONS=true KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" --no-files --text-file "$T/pr" 2>&1); rc=$?
 check "on GitHub, a hit is an error annotation" "$rc $out" '^1 ::error::'
 echo "$pass passed, $failed failed"; [ "$failed" = 0 ]

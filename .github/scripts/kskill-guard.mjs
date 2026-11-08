@@ -10,7 +10,8 @@
 // --self: that exact string is removed before searching, so the repository may name itself; its owner alone stays forbidden.
 // Authorized authors, whose identity (name and email) is not scanned, their commit messages still are: the owner's own
 // GitHub identity (GitHub writes it on a merge), and the repository's own App, named after it: `<name>[bot]` with its
-// noreply address `<id>+<name>[bot]@users.noreply.github.com` (release-please commits as the App).
+// noreply address `<id>+<name>[bot]@users.noreply.github.com` (release-please commits as the App). Their
+// `Co-authored-by:` trailer, which a squash merge adds, counts as that identity; every other line is scanned.
 // Exit 0 clean, 1 a hit, 64 misuse (no list: a guard that reads nothing must never pass).
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -58,7 +59,12 @@ if (range) {
     // An authorized author's identity is not scanned (above); any other identity is.
     const [an, ae, cn, ce] = git('show', '-s', '--format=%an%n%ae%n%cn%n%ce', sha).split('\n');
     const people = [[an, ae], [cn, ce]].filter(([name, email]) => !authorized(name, email)).flat();
-    scan(`commit ${sha.slice(0, 12)}`, [...people, git('show', '-s', '--format=%B', sha)].join('\n'));
+    // A squash merge credits each PR author in a Co-authored-by trailer: an authorized author's trailer is its identity too.
+    const message = git('show', '-s', '--format=%B', sha).split('\n').filter((line) => {
+      const m = line.match(/^co-authored-by:\s*(.+?)\s*<([^>]+)>\s*$/i);
+      return !(m && authorized(m[1], m[2]));
+    }).join('\n');
+    scan(`commit ${sha.slice(0, 12)}`, [...people, message].join('\n'));
   }
 }
 for (const f of all('--text-file')) scan(`text ${f}`, readFileSync(f, 'utf8'));
