@@ -63,7 +63,7 @@ gitleaks_bin() {
   mkdir -p "$dir" && dir=$(cd "$dir" && pwd) || return 1
   if [ ! -x "$dir/gitleaks" ]; then
     tgz="$dir/gitleaks.tar.gz"
-    curl -fsSL -o "$tgz" "https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_VERSION/gitleaks_${GITLEAKS_VERSION}_${os}_$arch.tar.gz" || return 1
+    curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o "$tgz" "https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_VERSION/gitleaks_${GITLEAKS_VERSION}_${os}_$arch.tar.gz" || return 1
     if [ "$( { sha256sum "$tgz" 2>/dev/null || shasum -a 256 "$tgz"; } | awk '{ print $1 }')" != "$sum" ]; then rm -f "$tgz"; return 1; fi
     tar -xzf "$tgz" -C "$dir" gitleaks && rm -f "$tgz" || return 1
   fi

@@ -277,6 +277,16 @@ jobs:
           KSKILL_BUILD_NUMBER_OFFSET: ${{ needs.config.outputs.offset }}
         run: bash "$KSKILL_HOME/.github/scripts/kskill-build-number.sh"
 
+      # The runner's disk is ~95 % full after a release build, and the post-job cache saves then fail the job with
+      # "No space left on device" after the upload succeeded. The image's .NET, GHC, CodeQL, Swift and Boost are not
+      # used here (the Android SDK is kept).
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift
+          docker image prune -af >/dev/null 2>&1 || true
+          df -h /
+
       - name: Set up Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
