@@ -46,6 +46,13 @@ check "... another identity holding a term does not" "$rc" '^1$'
 git -C "$R" commit -q --allow-empty --amend -m "SecretCorp" --author 'SecretCorp <1+SecretCorp@users.noreply.github.com>'
 out=$(KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" --no-files --self SecretCorp/kheona-skill --commits HEAD~1..HEAD 2>&1); rc=$?
 check "... and the owner's message is still scanned" "$rc" '^1$'
+# The repository's own App, named after it: its identity is authorized even when its user id is a listed term.
+printf '# a comment\nSecretCorp\n4242\n' > "$T/list2"
+app() { git -C "$R" commit -q --allow-empty --amend -m "$1" --author "$2"; KSKILL_GUARD_LIST=$T/list2 node "$G" --repo "$R" --no-files --self SecretCorp/kheona-skill --commits HEAD~1..HEAD > /dev/null 2>&1; echo $?; }
+check "the repository's own App may commit"            "$(app 'chore: release 2.0.0' 'kheona-skill[bot] <4242+kheona-skill[bot]@users.noreply.github.com>')" '^0$'
+check "... its message is still scanned"                "$(app 'SecretCorp' 'kheona-skill[bot] <4242+kheona-skill[bot]@users.noreply.github.com>')" '^1$'
+check "... another App's identity is scanned"           "$(app 'chore: x' 'other[bot] <4242+other[bot]@users.noreply.github.com>')" '^1$'
+check "... the App's address under another name is not" "$(app 'chore: x' 'SecretCorp <4242+kheona-skill[bot]@users.noreply.github.com>')" '^1$'
 out=$(GITHUB_ACTIONS=true KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" --no-files --text-file "$T/pr" 2>&1); rc=$?
 check "on GitHub, a hit is an error annotation" "$rc $out" '^1 ::error::'
 echo "$pass passed, $failed failed"; [ "$failed" = 0 ]
