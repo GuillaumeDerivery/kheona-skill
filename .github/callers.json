@@ -15,7 +15,7 @@
       }
     },
     "inputTypes": {},
-    "name": "Kheona Skill · Claude",
+    "name": "Kheona Skill \u00b7 Claude",
     "permissions": {
       "contents": "read",
       "id-token": "write",
@@ -31,15 +31,22 @@
     "caller": "kskill-deliver.yml",
     "dispatchInputs": [],
     "events": {
+      "push": {
+        "tags": [
+          "v*"
+        ]
+      },
       "workflow_dispatch": {}
     },
     "inputTypes": {},
-    "name": "Kheona Skill · Deliver",
+    "name": "Kheona Skill \u00b7 Deliver",
     "permissions": {
       "actions": "read",
       "contents": "read",
-      "id-token": "write"
+      "id-token": "write",
+      "pull-requests": "read"
     },
+    "pin": "tag",
     "secrets": [
       "ANDROID_KEYSTORE_BASE64",
       "ASC_API_KEY_BASE64",
@@ -57,33 +64,25 @@
   },
   "kskill-deploy.yml": {
     "caller": "kskill-deploy.yml",
-    "dispatchInputs": [
-      "environment"
-    ],
+    "custom": true,
+    "dispatchInputs": [],
     "events": {
-      "workflow_dispatch": {
-        "inputs": {
-          "environment": {
-            "default": "staging",
-            "description": "Environment to deploy (prod only from the prod branch)",
-            "options": [
-              "staging",
-              "prod"
-            ],
-            "type": "choice"
-          }
-        }
-      }
+      "push": {
+        "tags": [
+          "v*"
+        ]
+      },
+      "workflow_dispatch": {}
     },
-    "inputTypes": {
-      "environment": "choice"
-    },
-    "name": "Kheona Skill · CD · Build, push and deploy",
+    "inputTypes": {},
+    "name": "Kheona Skill \u00b7 CD \u00b7 Build, push and deploy",
     "permissions": {
       "actions": "read",
       "contents": "read",
-      "id-token": "write"
+      "id-token": "write",
+      "pull-requests": "read"
     },
+    "pin": "tag",
     "secrets": [
       "AWS_ACCESS_KEY_ID",
       "AWS_SECRET_ACCESS_KEY",
@@ -113,8 +112,7 @@
               "sentry-triage",
               "mutation",
               "refresh-flutter",
-              "security-scan",
-              "release-pr"
+              "security-scan"
             ],
             "required": true,
             "type": "choice"
@@ -125,7 +123,7 @@
     "inputTypes": {
       "job": "choice"
     },
-    "name": "Kheona Skill · Inbox",
+    "name": "Kheona Skill \u00b7 Inbox",
     "permissions": {
       "actions": "read",
       "contents": "read",
@@ -149,7 +147,7 @@
       }
     },
     "inputTypes": {},
-    "name": "Kheona Skill · Main",
+    "name": "Kheona Skill \u00b7 Main",
     "permissions": {
       "actions": "read",
       "contents": "read",
@@ -169,7 +167,7 @@
       }
     },
     "inputTypes": {},
-    "name": "Kheona Skill · Main",
+    "name": "Kheona Skill \u00b7 Main",
     "permissions": {
       "actions": "read",
       "contents": "read",
@@ -180,6 +178,7 @@
   },
   "kskill-main-service.yml": {
     "caller": "kskill-main.yml",
+    "custom": true,
     "dispatchInputs": [],
     "events": {
       "push": {
@@ -189,11 +188,12 @@
       }
     },
     "inputTypes": {},
-    "name": "Kheona Skill · Main",
+    "name": "Kheona Skill \u00b7 Main",
     "permissions": {
       "actions": "read",
       "contents": "read",
-      "id-token": "write"
+      "id-token": "write",
+      "pull-requests": "read"
     },
     "secrets": [
       "AWS_ACCESS_KEY_ID",
@@ -216,7 +216,7 @@
       }
     },
     "inputTypes": {},
-    "name": "Kheona Skill · PR",
+    "name": "Kheona Skill \u00b7 PR",
     "permissions": {
       "actions": "read",
       "contents": "read",
@@ -241,7 +241,7 @@
       "workflow_dispatch": {}
     },
     "inputTypes": {},
-    "name": "Kheona Skill · Release",
+    "name": "Kheona Skill \u00b7 Release",
     "permissions": {
       "actions": "read",
       "contents": "read",
@@ -277,113 +277,13 @@
       "dry_run": "boolean",
       "repositories": "string"
     },
-    "name": "Kheona Skill · Renovate",
+    "name": "Kheona Skill \u00b7 Renovate",
     "permissions": {
       "contents": "read",
       "id-token": "write"
     },
     "secrets": [],
     "stack": false
-  },
-  "kskill-ship-flutter.yml": {
-    "caller": "kskill-ship.yml",
-    "dispatchInputs": [
-      "ship"
-    ],
-    "events": {
-      "pull_request": {
-        "branches": [
-          "prod"
-        ],
-        "types": [
-          "labeled"
-        ]
-      },
-      "push": {
-        "branches": [
-          "prod"
-        ]
-      },
-      "workflow_dispatch": {
-        "inputs": {
-          "ship": {
-            "default": "",
-            "description": "Ship the open release PR at this head SHA (empty, on prod = run the production delivery again)",
-            "required": false,
-            "type": "string"
-          }
-        }
-      }
-    },
-    "inputTypes": {
-      "ship": "string"
-    },
-    "name": "Kheona Skill · CD · Push to prod and deliver",
-    "permissions": {
-      "actions": "read",
-      "contents": "read",
-      "id-token": "write"
-    },
-    "secrets": [
-      "ANDROID_KEYSTORE_BASE64",
-      "ASC_API_KEY_BASE64",
-      "ASC_ISSUER_ID",
-      "ASC_KEY_ID",
-      "CM_KEYSTORE_PASSWORD",
-      "CM_KEY_ALIAS",
-      "CM_KEY_PASSWORD",
-      "IOS_DIST_CERTIFICATE_P12_BASE64",
-      "IOS_DIST_CERTIFICATE_PASSWORD",
-      "PLAY_STORE_JSON_KEY_BASE64",
-      "SENTRY_AUTH_TOKEN"
-    ],
-    "stack": true
-  },
-  "kskill-ship-service.yml": {
-    "caller": "kskill-ship.yml",
-    "dispatchInputs": [
-      "ship"
-    ],
-    "events": {
-      "pull_request": {
-        "branches": [
-          "prod"
-        ],
-        "types": [
-          "labeled"
-        ]
-      },
-      "push": {
-        "branches": [
-          "prod"
-        ]
-      },
-      "workflow_dispatch": {
-        "inputs": {
-          "ship": {
-            "default": "",
-            "description": "Ship the open release PR at this head SHA (empty, on prod = run the production deploy again)",
-            "required": false,
-            "type": "string"
-          }
-        }
-      }
-    },
-    "inputTypes": {
-      "ship": "string"
-    },
-    "name": "Kheona Skill · CD · Push to prod and deploy",
-    "permissions": {
-      "actions": "read",
-      "contents": "read",
-      "id-token": "write"
-    },
-    "secrets": [
-      "AWS_ACCESS_KEY_ID",
-      "AWS_SECRET_ACCESS_KEY",
-      "SLACK_WEBHOOK_URL"
-    ],
-    "stack": true
   },
   "kskill-sync-upstream.yml": {
     "caller": "kskill-sync-upstream.yml",
@@ -396,7 +296,7 @@
       }
     },
     "inputTypes": {},
-    "name": "Kheona Skill · Sync upstream",
+    "name": "Kheona Skill \u00b7 Sync upstream",
     "permissions": {
       "contents": "read",
       "id-token": "write"

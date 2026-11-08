@@ -1,0 +1,28 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Trigger: a push to main; by hand
+# Purpose: this repository's own release, the same flow as every repository's: release-please keeps one release PR open
+# Effect: once a person merges that PR, the version tag and an immutable GitHub release; each repository then gets the
+#         new version through a Renovate PR on its own pins (renovate/default.json, the kheona-skill group)
+# `.kheona.json` `workflows.releasePlease.merge` is "person": nothing merges the release PR but a person, the gate
+# before a change reaches every repository. The release text is built from commits the guard already passed, and the
+# guard runs on the release PR like on any other. Skipped until the Actions variable KSKILL_TOKEN_BROKER_URL is set here
+# (the App opens the PR and creates the release; the App must be installed on this repository, and the broker allow it).
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  release:
+    if: vars.KSKILL_TOKEN_BROKER_URL != ''
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      pull-requests: read
+    uses: ./.github/workflows/kskill-release-please.yml

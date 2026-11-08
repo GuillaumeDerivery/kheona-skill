@@ -5,8 +5,8 @@
 # typecheck and build, runs the tests that exist, reports coverage without a floor, no mutation testing) or
 # "established" (every gate). Absent means established: a repository never loosens by omission; the skill writes
 # "bootstrap" when it scaffolds one.
-# The switch is enforced at the first production release: with --ship (the run ships to production: a push to
-# `prod`, the release PR's `ship`, a library release), a repository still in bootstrap fails here, naming the fix.
+# The switch is enforced at the first production release: with --ship (the run ships to production: the gate on a
+# version tag, a library release), a repository still in bootstrap fails here, naming the fix.
 #
 # Usage, from the repository root: bash .github/scripts/kskill-phase.sh [--ship]
 # Writes phase=<bootstrap|established> to $GITHUB_OUTPUT (stdout outside Actions). Never reads a secret.

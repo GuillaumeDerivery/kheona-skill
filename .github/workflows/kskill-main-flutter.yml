@@ -1,14 +1,13 @@
 # This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
 # not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # Trigger: a push to main (a merged PR)
-# Purpose: the Flutter gate once (a green PR run of the same tree reused) and the release PR to prod
-# Effect: opens or updates the release PR kskill/release; deploys nothing
-# Everything a push to `main` starts in a Flutter app, in one run. Installed as
-# `.github/workflows/kskill-main.yml` (the stack-neutral path, like kskill-ci.yml).
-#   1. CI: `.github/workflows/kskill-ci.yml` (the Flutter gate), called once; a green `Kheona Skill · PR` run of the same
-#      tree is reused (kskill-tested-tree.sh).
-#   2. The release PR kskill/release -> prod (actions/kskill-release-pr), in parallel: it ships nothing.
-# An app has no staging deploy: its store delivery is `Kheona Skill · CD · Push to prod and deliver` (kskill-ship.yml) on a push to `prod`.
+# Purpose: the Flutter gate once (a green PR run of the same tree reused)
+# Effect: none: an app has no staging deploy
+# Everything a push to `main` starts in a Flutter app, in one run. Installed as `.github/workflows/kskill-main.yml` (the
+# stack-neutral path, like kskill-ci.yml): CI, `.github/workflows/kskill-ci.yml` (the Flutter gate), called once; a green
+# `Kheona Skill · PR` run of the same tree is reused (kskill-tested-tree.sh). A passed run is what a release checks on
+# the commit before it. The release PR is release-please's (kskill-release-please.yml); the store delivery is the version
+# tag merging it creates (kskill-deliver.yml), or a test build started by hand on main.
 # Variable: KSKILL_TOKEN_BROKER_URL (the token broker). No .kheona.json keys of its own.
 name: Kheona Skill · Main
 
@@ -38,45 +37,3 @@ jobs:
     with:
       stack: ${{ inputs.stack }}
 
-  # the draft release PR kskill/release -> prod (actions/kskill-release-pr). Skipped before any runner where it
-  # is off (the Actions variable KSKILL_RELEASE_PR, written from .kheona.json by kheona-skill's kskill-repo-settings.sh).
-  release-pr:
-    name: Open or update the release PR
-    if: vars.KSKILL_RELEASE_PR != 'false'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    # One at a time, a newer run superseding an older one (main's push, prod's, the doctor's daily refresh).
-    concurrency:
-      group: kskill-release-pr
-      cancel-in-progress: true
-    # Every write goes through the App token; the job's own token only reads.
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      HAS_APP: ${{ vars.KSKILL_TOKEN_BROKER_URL != '' }}
-    steps:
-      - name: Reach this version's files
-        uses: $/.github/actions/kskill-home
-
-      # the App's token for this repository alone: a push, PR or merge made with it starts workflows.
-      - name: Mint the App token
-        id: app
-        if: env.HAS_APP == 'true'
-        uses: $/.github/actions/kskill-token
-        with:
-          broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
-
-      # main, whatever pushed: the script and the settings are main's, and a push to prod may predate them.
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1  # zizmor: ignore[artipacked] -- pushes with the App token
-        with:
-          ref: main
-          fetch-depth: 0
-          token: ${{ steps.app.outputs.token || github.token }}
-
-      - name: Prepare the release PR
-        uses: $/.github/actions/kskill-release-pr
-        with:
-          token: ${{ steps.app.outputs.token }}
-          github-token: ${{ github.token }}

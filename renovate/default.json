@@ -1,9 +1,9 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Kheona dependency policy (this repository), extended by every repository's renovate.json. Renovate runs daily from kheona-skill (.github/workflows/renovate.yml, dispatched by the Kheona doctor); a repository gets at most one update PR a week (Monday), one lock file PR (Thursday), one draft for majors, and a security PR at once.",
+  "description": "Kheona dependency policy (this repository), extended by every repository's renovate.json. Renovate runs daily from kheona-skill (.github/workflows/renovate.yml, dispatched by the Kheona doctor); a repository gets at most one update PR a week (Monday), one lock file PR (Thursday), one draft for majors, and a security PR at once. Updates are fix(deps): release-please releases fix:, never chore:, so a dependency or security fix reaches production through the next release PR.",
   "extends": [
     "config:recommended",
-    ":semanticCommitTypeAll(chore)",
+    ":semanticCommitTypeAll(fix)",
     ":semanticCommitScope(deps)"
   ],
   "timezone": "Europe/Paris",
@@ -22,7 +22,9 @@
   "platformAutomerge": false,
   "automergeType": "pr",
   "automergeStrategy": "squash",
-  "gitIgnoredAuthors": ["41898282+github-actions[bot]@users.noreply.github.com"],
+  "gitIgnoredAuthors": [
+    "41898282+github-actions[bot]@users.noreply.github.com"
+  ],
   "gradle": {
     "enabled": false
   },
@@ -65,11 +67,23 @@
       "depNameTemplate": "python",
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
+    },
+    {
+      "description": "kheona-skill's Renovate preset is pinned at a version tag in renovate.json (github>owner/kheona-skill//renovate/default#vX.Y.Z), so a preset change reaches a repository through this PR like its callers, never straight from the default branch. Renovate does not move an extends ref itself.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)renovate\\.json5?$/"
+      ],
+      "matchStrings": [
+        "\"github>(?<depName>[\\w.-]+/kheona-skill)//renovate/[\\w.-]+#(?<currentValue>v\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver"
     }
   ],
   "packageRules": [
     {
-      "description": "K1.4: every minor, patch, pin and digest update of the repository, all ecosystems (npm, Python, pub, Docker, GitHub Actions, the Node and Python runtimes' patches), in ONE PR a week (the Monday schedule above), labelled automerge: Kheona Skill \u00b7 PR merges it once CI passed on that exact commit, and Renovate's own automerge (platformAutomerge off: the free plan has none) is the backstop on its next run. Everywhere a version is written moves in that one PR (.nvmrc, the Dockerfile's image, engines.node), so CI's \"runtime versions agree\" check holds.",
+      "description": "K1.4: every minor, patch, pin and digest update of the repository, all ecosystems (npm, Python, pub, Docker, GitHub Actions, the Node and Python runtimes' patches), in ONE PR a week (the Monday schedule above), labelled automerge: Kheona Skill · PR merges it once CI passed on that exact commit, and Renovate's own automerge (platformAutomerge off: the free plan has none) is the backstop on its next run. Everywhere a version is written moves in that one PR (.nvmrc, the Dockerfile's image, engines.node), so CI's \"runtime versions agree\" check holds.",
       "matchUpdateTypes": [
         "minor",
         "patch",
@@ -175,12 +189,28 @@
       "enabled": false
     },
     {
-      "description": "K2.10: the kskill-* copies are kheona-skill's templates, bumped there once.",
+      "description": "K2.10: copies of kheona-skill's actions (an old layout) are bumped there once, never here.",
       "matchFileNames": [
-        ".github/workflows/kskill-*.yml",
         ".github/actions/kskill-*/**"
       ],
       "enabled": false
+    },
+    {
+      "description": "kheona-skill itself: its callers (.github/workflows/kskill-*.yml, pinned by commit, the production ones by their immutable version tag) and its preset tag move together in ONE PR per release, at any time, never merged automatically: a person merges it (the callers' content can change with a version; the repository check says so in CI, and the setup command rewrites them). chore(ci): it changes the pipeline, not what the repository releases.",
+      "matchDepNames": [
+        "/(^|/)kheona-skill(/|$)/"
+      ],
+      "groupName": "kheona-skill",
+      "groupSlug": "kheona-skill",
+      "schedule": [
+        "at any time"
+      ],
+      "semanticCommitType": "chore",
+      "semanticCommitScope": "ci",
+      "automerge": false,
+      "labels": [
+        "dependencies"
+      ]
     }
   ]
 }

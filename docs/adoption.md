@@ -17,15 +17,16 @@
    }
    ```
 
-2. **Caller files**, one per event. The stack is read from the repository:
+2. **Releases:** `release-please-config.json` and `.release-please-manifest.json` at the root, the manifest seeded at the current version (`{".": "1.4.0"}`), and squash merges only (the settings script sets it). See the README's "Releases and deploys".
+3. **Caller files**, one per event. The stack is read from the repository:
 
    ```bash
-   node scripts/kskill-callers.mjs write --repo . --self owner/kheona-skill --sha <40-hex-commit> --version v1.0.0
+   node scripts/kskill-callers.mjs write --repo . --self owner/kheona-skill --sha <40-hex-commit> --version v2.0.0
    ```
 
-3. **`renovate.json`:** `{"extends": ["github>owner/kheona-skill//renovate/default"]}`.
-4. **Variables and secrets:** see [secrets.md](secrets.md) and the [README](../README.md#secrets). Callers pass secrets by name; `secrets: inherit` does not cross owners. The App key is never one of them.
-5. **Topic:** add `kheona-skill` or `kskill`. A library's consumers add the topic the library's `.kheona.json` names.
-6. **Prove it:** open a test PR. It must pass CI and review, and merge.
+4. **`renovate.json`:** `{"extends": ["github>owner/kheona-skill//renovate/default#v2.0.0"]}`: the generator pins the preset at the callers' version.
+5. **Variables and secrets:** see [secrets.md](secrets.md) and the [README](../README.md#secrets). Callers pass secrets by name; `secrets: inherit` does not cross owners. The App key is never one of them.
+6. **Topic:** add `kheona-skill` or `kskill`. A library's consumers add the topic the library's `.kheona.json` names.
+7. **Prove it:** open a test PR. It must pass CI and review, and merge.
 
-`node scripts/kskill-callers.mjs check --repo .` says when a caller is missing or differs from what its version expects. A Renovate bump regenerates the callers in the same PR.
+`node scripts/kskill-callers.mjs check --repo .` says when a caller is missing or differs from what its version expects. Renovate opens one PR per release of this repository, moving every caller and the preset pin; when a version changes a caller's content, CI says so and the setup command rewrites it on that branch.

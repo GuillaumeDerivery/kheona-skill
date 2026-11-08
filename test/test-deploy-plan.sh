@@ -14,10 +14,11 @@ check() { # check <name> <output> <grep -E pattern>
 }
 ruby -ryaml -e 'w=YAML.load_file(ARGV[0]); File.write(ARGV[1], w["jobs"]["plan"]["steps"].find{|x| x["id"]=="read"}["run"])' \
   "$HERE/.github/workflows/kskill-deploy.yml" "$T/plan.sh"
-# plan <name> <.kheona.json> [branch]: "rc=N" then the outputs and the annotations.
+# plan <name> <.kheona.json> [environment]: "rc=N" then the outputs and the annotations. The environment comes from
+# the release check (test-release-check.sh), which runs before this step.
 plan() {
   local d="$T/$1"; mkdir -p "$d"; printf '%s' "$2" > "$d/.kheona.json"
-  (cd "$d" && GITHUB_OUTPUT="$d/out" EVENT=${EVENT:-push} GITHUB_REF="refs/heads/${3:-main}" GITHUB_REPOSITORY=o/r bash "$T/plan.sh" > "$d/log" 2>&1; echo "rc=$?")
+  (cd "$d" && GITHUB_OUTPUT="$d/out" ENVIRONMENT="${3-staging}" GITHUB_REPOSITORY=o/r GITHUB_STEP_SUMMARY=/dev/null bash "$T/plan.sh" > "$d/log" 2>&1; echo "rc=$?")
   cat "$d/out" 2>/dev/null; grep -E '::(error|notice)::' "$d/log"
 }
 E='"ecrRepository":"x","region":"eu-west-3","cluster":"c","namespace":"n","deployments":["d"]'
@@ -47,10 +48,17 @@ out=$(plan bad-name "{\"workflows\":{\"cd\":{\"staging\":{$E,\"buildArgs\":{\"ba
 check "a build argument name that is not NAME: refused"    "$out" 'buildArgs must be an object of NAME'
 check "the action builds natively only: no QEMU"           "$(grep -c "setup-qemu-action" "$HERE/.github/actions/kskill-deploy-eks/action.yml" "$HERE/.github/workflows/kskill-deploy.yml" | cut -d: -f2 | paste -sd+ - | bc)" '^0$'
 
-out=$(EVENT=pull_request plan pr-refused "{\"workflows\":{\"cd\":{\"staging\":{$E}}}}")
-check "a pull request: refused"                            "$out" 'only deploys as a dry run'
-out=$(EVENT=pull_request DRY_RUN=true plan pr-dry "{\"workflows\":{\"cd\":{\"staging\":{$E}}}}")
-check "a pull request as a dry run: staging"               "$out" '^environment=staging$'
+out=$(plan no-env "{\"workflows\":{\"cd\":{\"staging\":{$E}}}}" "")
+check "no environment from the release check: refused"   "$out" 'release check decides'
+out=$(plan custom "{\"workflows\":{\"cd\":{\"target\":\"custom\",\"staging\":{},\"prod\":false}}}")
+check "target custom: deploys, no EKS settings needed"    "$out" '^deploy=true$'
+check "... handed to the repository's own workflow"       "$out" '^target=custom$'
+out=$(plan custom-off "{\"workflows\":{\"cd\":{\"target\":\"custom\",\"staging\":{},\"prod\":false}}}" prod)
+check "... an environment set to false still skips"       "$out" '^deploy=false$'
+out=$(plan target-bad "{\"workflows\":{\"cd\":{\"target\":\"gke\",\"staging\":{$E}}}}")
+check "an unknown target: refused"                        "$out" 'must be "eks" or "custom"'
+out=$(plan eks "{\"workflows\":{\"cd\":{\"staging\":{$E}}}}")
+check "default target: eks"                               "$out" '^target=eks$'
 ROLE=arn:aws:iam::111122223333:role/example
 out=$(plan role "{\"workflows\":{\"cd\":{\"staging\":{$E,\"awsRoleArn\":\"$ROLE\"},\"prod\":{$E}}}}")
 check "awsRoleArn: this environment's role"                "$out" "^aws-role-arn=$ROLE$"

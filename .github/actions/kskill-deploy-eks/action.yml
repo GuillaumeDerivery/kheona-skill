@@ -1,14 +1,16 @@
 # This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
 # not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # Checks that every target exists in the cluster, then builds the checked-out repository's ./Dockerfile, pushes it
-# to Amazon ECR tagged with the full commit SHA, points every listed deployment and cron job at that tag, waits
+# to Amazon ECR tagged with the full commit SHA (and the version, for a release), points every listed deployment and
+# cron job at the image's digest (a tag can be overwritten, a digest cannot), waits
 # for each deployment's rollout, reads the running image back from the cluster into the run summary and fails if it differs, then optionally calls
 # the service's health check and compares the commit it reports.
-# Called by kskill-deploy.yml only (itself called by kskill-main.yml and kskill-ship.yml), after the gate; it never
+# With image-digest (a rollback to an image ECR still holds), nothing is built: that digest is deployed.
+# Called by kskill-deploy.yml only, after the gate; it never
 # decides which environment to deploy, never reads
 # .kheona.json and never pushes `latest`. Container name = deployment / cron job name (the existing convention).
 name: Kheona Skill · CD · Deploy to EKS
-description: Build, push by commit SHA, set image on EKS, wait for the rollout, report what runs.
+description: Build, push, set the image by digest on EKS, wait for the rollout, report what runs.
 
 inputs:
   role-arn:
@@ -58,6 +60,19 @@ inputs:
     description: When set, a URL that must answer 2xx after the rollout; a JSON `commit` field must equal the SHA.
     required: false
     default: ''
+  image-digest:
+    description: When set (sha256:...), deploy this image of the repository and build nothing (a rollback).
+    required: false
+    default: ''
+  version:
+    description: When set (a release, vX.Y.Z), the image is also tagged with it, so an ECR lifecycle rule can keep it.
+    required: false
+    default: ''
+
+outputs:
+  digest:
+    description: The digest deployed (sha256:...).
+    value: ${{ steps.image.outputs.digest }}
 
 runs:
   using: composite
@@ -155,14 +170,24 @@ runs:
       id: ecr
       uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
 
-    # the image is tagged with the full commit SHA and deployed by that tag, never `latest`.
-    - name: Compute the image reference
-      id: image
+    # the image is tagged with the full commit SHA (and the version, for a release), never `latest`.
+    - name: Name the image's tags
+      id: tags
       shell: bash
       env:
         REGISTRY: ${{ steps.ecr.outputs.registry }}
         REPOSITORY: ${{ inputs.ecr-repository }}
-      run: echo "ref=${REGISTRY}/${REPOSITORY}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+        VERSION: ${{ inputs.version }}
+        DIGEST: ${{ inputs.image-digest }}
+      run: |
+        [ -z "$VERSION" ] || [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version '$VERSION' is not vX.Y.Z."; exit 1; }
+        [ -z "$DIGEST" ] || [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::image-digest is not sha256:<64 hex>."; exit 1; }
+        {
+          echo "tags<<KSKILL_EOF"
+          echo "${REGISTRY}/${REPOSITORY}:${GITHUB_SHA}"
+          [ -z "$VERSION" ] || echo "${REGISTRY}/${REPOSITORY}:${VERSION}"
+          echo "KSKILL_EOF"
+        } >> "$GITHUB_OUTPUT"
 
     # Native builds only, never emulated (no QEMU): the platform must be the runner's own (kskill-deploy.yml picks
     # the runner from it). The build arguments, one NAME=value per line, after GIT_SHA.
@@ -186,11 +211,13 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     - name: Set up Docker Buildx
+      if: inputs.image-digest == ''
       uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
     # The layer cache's scope, one per platform and repository (environments with their own build arguments still
     # share the dependency layers).
     - name: Name the layer cache
+      if: inputs.image-digest == ''
       id: cache
       shell: bash
       env:
@@ -199,13 +226,15 @@ runs:
       run: echo "scope=kskill-deploy-$(tr '/' '-' <<<"$PLATFORM")-${REPOSITORY//\//-}" >> "$GITHUB_OUTPUT"
 
     - name: Build and push the image
+      id: push
+      if: inputs.image-digest == ''
       uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
       with:
         context: .
         file: Dockerfile
         platforms: ${{ inputs.platform }}
         push: true
-        tags: ${{ steps.image.outputs.ref }}
+        tags: ${{ steps.tags.outputs.tags }}
         # GIT_SHA, the commit the image was built from, reported by the service (e.g. /healthcheck `commit`),
         # then the environment's own build arguments (.kheona.json workflows.cd.<env>.buildArgs).
         build-args: ${{ steps.build.outputs.args }}
@@ -214,8 +243,20 @@ runs:
         cache-from: type=gha,scope=${{ steps.cache.outputs.scope }}
         cache-to: type=gha,mode=max,scope=${{ steps.cache.outputs.scope }},ignore-error=true
 
+    # By digest: the image just pushed, or the rollback's.
+    - name: Compute the image reference
+      id: image
+      shell: bash
+      env:
+        REGISTRY: ${{ steps.ecr.outputs.registry }}
+        REPOSITORY: ${{ inputs.ecr-repository }}
+        DIGEST: ${{ inputs.image-digest || steps.push.outputs.digest }}
+      run: |
+        [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::No image digest to deploy ('$DIGEST')."; exit 1; }
+        { echo "ref=${REGISTRY}/${REPOSITORY}@${DIGEST}"; echo "digest=$DIGEST"; } >> "$GITHUB_OUTPUT"
+
     # When environment-variable is set, the deployment is paused so the env change and the new image roll out
-    # once. The variable is set on the deployment, not baked into the image: staging and prod share one tag.
+    # once. The variable is set on the deployment, not baked into the image: staging and prod share one image.
     - name: Point deployments and cron jobs at the image
       shell: bash
       env:
@@ -233,7 +274,7 @@ runs:
         while read -r target; do
           ns=$(jq -r .namespace <<< "$target")
           for d in $(jq -r '.deployments[]' <<< "$target"); do
-            echo "Setting deployments/$d in $ns to :${GITHUB_SHA}"
+            echo "Setting deployments/$d in $ns to ${IMAGE#*@}"
             if [ -n "$ENV_VAR" ]; then
               kubectl rollout pause "deployments/$d" --namespace "$ns"
               paused="$ns/$d"
@@ -246,7 +287,7 @@ runs:
             fi
           done
           for c in $(jq -r '.cronjobs[]' <<< "$target"); do
-            echo "Setting cronjobs/$c in $ns to :${GITHUB_SHA}"
+            echo "Setting cronjobs/$c in $ns to ${IMAGE#*@}"
             kubectl set image "cronjobs/$c" "$c=$IMAGE" --namespace "$ns"
           done
         done < <(jq -c '.[]' <<< "$TARGETS")
@@ -288,7 +329,7 @@ runs:
         {
           echo "## Deployed to ${ENV_NAME}"
           echo
-          echo "Image tag (full commit SHA): \`${GITHUB_SHA}\`"
+          echo "Commit \`${GITHUB_SHA}\`, image \`${IMAGE#*@}\`"
           echo
           echo "| Resource | Image the cluster runs now |"
           echo "|---|---|"
@@ -304,7 +345,7 @@ runs:
           if [ "$found" = no ]; then failed="$failed $ns/$kind/$name"; fi
         done < <(jq -r '.[] | .namespace as $ns | (.deployments[] | "\($ns) deployments \(.)"), (.cronjobs[] | "\($ns) cronjobs \(.)")' <<< "$TARGETS")
         if [ -n "$failed" ]; then
-          echo "::error::The cluster does not run the image this job pushed (:${GITHUB_SHA}) for:$failed"
+          echo "::error::The cluster does not run the image this job set (${IMAGE#*@}) for:$failed"
           exit 1
         fi
 

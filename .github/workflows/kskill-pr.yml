@@ -6,8 +6,8 @@
 # The one workflow of a pull request, every stack: one run per push, its jobs chained by
 # `needs:`, nothing chained by workflow_run or dispatch.
 #   1. CI: the stack's gate, `.github/workflows/kskill-ci.yml` (called; its first job also runs the repository check,
-#      ). Not on the release PR (head kskill/release): its head is main's commit or tree, tested on main, and
-#      shipping runs the gate again.
+#      ). Not on release-please's PR outside a library (vars.KSKILL_RELEASE_PR_CI): a person merges it, and the
+#      version tag runs the gate in full before production.
 #   2. Claude review, once CI passed, on a PR an automation opened (branches renovate/, doctor/, fix/sentry-, claude/,
 #      chore/bump-lib, chore/refresh-, chore/sync-upstream; never release-please's or the release PR, which
 #      carry only reviewed work), not a draft: one comment updated in place, a verdict (OK to merge / needs a person /
@@ -80,7 +80,7 @@ env:
 jobs:
   ci:
     name: CI
-    if: github.head_ref != 'kskill/release' && github.event.action != 'ready_for_review'
+    if: "!(startsWith(github.head_ref, 'release-please--') && vars.KSKILL_RELEASE_PR_CI == 'false') && github.event.action != 'ready_for_review'"
     uses: ./.github/workflows/kskill-ci.yml
     permissions:
       contents: read
@@ -525,6 +525,7 @@ jobs:
             release-please--*)
               # A library's release PR (version and changelog only), merged once its gate passed.
               [ "$ROLE" = library ] || skip "release-please's PR outside a library: left for a person."
+              [ "$RP_MERGE" != person ] || skip "workflows.releasePlease.merge is person: a person merges it."
               [ "$RP_MERGE" = gate ] || skip "workflows.releasePlease.merge is $RP_MERGE: Kheona Skill · Release merges it on its next workflow_dispatch run."
               [ "$RP_GATE" = kskill-pr.yml ] || skip "workflows.releasePlease.gate is $RP_GATE, not this workflow: Kheona Skill · Release merges it."
               [ "$PHASE" != bootstrap ] || skip "the bootstrap phase: the first release needs .kheona.json phase established."

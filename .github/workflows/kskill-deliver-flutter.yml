@@ -1,15 +1,22 @@
 # This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
 # not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
-# Trigger: called by Kheona Skill · CD · Push to prod and deliver on a push to prod; by hand on prod
-# Purpose: the full gate, then builds, signs and uploads the app to TestFlight and Google Play
-# Effect: store uploads (releases the app)
-# ships a Flutter app to TestFlight and to Google Play, signed, from CI. Called by `Kheona Skill · CD · Push to prod and deliver`
-# (kskill-ship.yml) on a push to `prod`, or run by hand (workflow_dispatch); refused on any ref but `prod`; it
-# has no pull_request trigger, so a PR or a fork can never reach it. Both store lanes `needs:` the repository's gate, `Kheona Skill · CI`, run inside
-# this run. Releasing is `prod` moving forward, one deliberate act: see ci-cd.md "The release branch".
-# Never: commits back, looks a build number up from a store, carries a paths-ignore, publishes from `main`.
+# Trigger: a version tag's push (the release); by hand on a tag (the same release again) or on main (a test build)
+# Purpose: checks the release, runs the full gate, then builds, signs and uploads the app to TestFlight and Google Play
+# Effect: store uploads
+# Ships a Flutter app to TestFlight and to Google Play, signed, from CI, through the repository's caller
+# (kskill-deliver.yml), which pins this repository by its immutable version tag. What may run comes from the ref
+# alone (.github/scripts/kskill-release-check.sh, the same check as the services' production deploy):
+#   - a version tag vX.Y.Z: merging the release PR (a person) tags it with the App token; the check asks for a tag on
+#     main, a release PR merged by a person, Main passed on the commit before. A dispatch on a tag needs a published
+#     release and a person with write access. A store build cannot be taken back: an app fixes forward, it never rolls back.
+#   - a dispatch on main: a test build, no version (the build number is still main's commit count).
+#   - anything else: refused. No pull_request trigger, so a PR or a fork can never reach it.
+# Both store lanes `needs:` the repository's gate, `Kheona Skill · CI`, run in full inside this run.
+# Never: commits back, looks a build number up from a store, carries a paths-ignore.
 #
-# The build number is the commit count of `prod` (+ an offset), the same on both stores (kskill-build-number.sh).
+# The build number is the commit count of the ref on main (+ an offset), the same on both stores
+# (kskill-build-number.sh): main is linear (squash merges), so it only grows. A test build of the very commit a release
+# shipped gets that release's number, and the stores refuse it.
 # The repository variable BUILD_NUMBER_OVERRIDE, when set, replaces it for one run (re-ship an unchanged commit).
 # What is app-specific and stays in the repository, behind a stable hook: `android/fastlane/Fastfile` and
 # `ios/fastlane/Fastfile` (+ Appfiles) own bundle/package ids, team id, Play track, ABIs, signing settings and
@@ -74,8 +81,9 @@ on:
       SENTRY_AUTH_TOKEN:
         required: false
 
+# One delivery at a time, whatever the ref: two would race for the same build numbers.
 concurrency:
-  group: kskill-deliver-flutter-${{ github.ref }}
+  group: kskill-deliver-flutter
   cancel-in-progress: false
 
 permissions:
@@ -96,7 +104,13 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read      # the release check: the release PR that made the tagged commit
+      actions: read            # the release check: Main's run on the commit before the release
     outputs:
+      environment: ${{ steps.env.outputs.environment }}
+      version: ${{ steps.env.outputs.version }}
       enabled: ${{ steps.read.outputs.enabled }}
       android: ${{ steps.read.outputs.android }}
       android_lane: ${{ steps.read.outputs.android_lane }}
@@ -114,6 +128,25 @@ jobs:
       sentry_app_id: ${{ steps.read.outputs.sentry_app_id }}
       sentry_url: ${{ steps.read.outputs.sentry_url }}
     steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      # A tag only when it is a person's release (or a person's dispatch on a published one); main only by hand.
+      - name: Check the release
+        id: env
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          ACTOR: ${{ github.triggering_actor }}
+        run: |
+          if [ "$EVENT_NAME" = push ] && [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ]; then
+            echo "::error::A push to $DEFAULT_BRANCH delivers nothing: a release is a version tag; a test build is started by hand."
+            exit 1
+          fi
+          bash "$KSKILL_HOME/.github/scripts/kskill-release-check.sh"
+
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -121,8 +154,6 @@ jobs:
 
       - name: Read .kheona.json
         id: read
-        env:
-          REF: ${{ github.ref }}
         run: |
           json='{}'
           if [ -f .kheona.json ]; then json="$(cat .kheona.json)"; fi
@@ -137,12 +168,6 @@ jobs:
           if [ "$enabled" = false ]; then
             echo "::notice::workflows.cd.enabled is false: this repository is not delivered by this workflow."
             exit 0
-          fi
-          # A build number is the commit count of the ref: from any other branch it would burn a number `prod`
-          # has not reached (or reuse one it has), and the stores never take a number back.
-          if [ "$REF" != refs/heads/prod ]; then
-            echo "::error::Deliveries run on refs/heads/prod only; this run is on $REF."
-            exit 1
           fi
 
           android="$(get .workflows.cd.android.enabled true)"
@@ -203,7 +228,7 @@ jobs:
     uses: ./.github/workflows/kskill-ci.yml
     permissions:
       contents: read
-      actions: read            # the gate's tested-tree lookup (never reused on prod: the full gate runs)
+      actions: read            # the gate's tested-tree lookup (never reused here: only a push to main reuses)
       id-token: write
     with:
       stack: ${{ inputs.stack }}

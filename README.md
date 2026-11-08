@@ -8,8 +8,8 @@ Shared CI, delivery and repository automation for GitHub, built to work the same
 ## What a repository gets
 
 - **CI per stack:** Node, Python, Flutter, Terraform and cluster manifests, one gate per pull request.
-- **Deploy:** build, push by commit SHA, roll out to EKS, read back what runs.
-- **Release:** a release PR, a `ship` label, a `prod` branch that only moves forward.
+- **Deploy:** build, push, roll out to EKS by image digest, read back what runs. Or hand over to the repository's own deploy.
+- **Release:** release-please's release PR; a person merges it, the version tag releases to production.
 - **Flutter delivery:** TestFlight and Google Play from one workflow.
 - **Sentry triage:** issues and fixes from production errors.
 - **Renovate:** self-hosted, with shared presets.
@@ -21,8 +21,27 @@ Shared CI, delivery and repository automation for GitHub, built to work the same
 See [docs/adoption.md](docs/adoption.md). In short: write `.kheona.json`, run the generator, set the variables, open a PR.
 
 ```bash
-node scripts/kskill-callers.mjs write --repo ../my-repo --self owner/kheona-skill --sha <40-hex-commit> --version v1.0.0
+node scripts/kskill-callers.mjs write --repo ../my-repo --self owner/kheona-skill --sha <40-hex-commit> --version v2.0.0
 ```
+
+## Releases and deploys
+
+| When | Workflow in the repository | What happens |
+|---|---|---|
+| A PR is opened or updated | `kskill-pr.yml` | CI. Nothing deploys. |
+| A merge to `main` | `kskill-main.yml` | CI, then **staging** (a service; an app has none). |
+| A merge to `main` | `kskill-release-please.yml` | release-please opens or updates the release PR: version and CHANGELOG, with a "Check before you merge" list. |
+| **A person merges the release PR** | `kskill-release-please.yml` | The version tag `vX.Y.Z` and the GitHub release, made with the App token. |
+| The tag is pushed | `kskill-deploy.yml` or `kskill-deliver.yml` | The release check, the full gate, then **production** (TestFlight and Play for an app). |
+| Started by hand on an earlier tag | the same | A rollback: the release's own image when ECR still holds it. An app fixes forward. |
+| Started by hand on `main` (an app) | `kskill-deliver.yml` | A test build, no version. |
+
+- **The environment comes from the ref, never from an input:** `main` is staging, a version tag is production, nothing else deploys (`.github/scripts/kskill-release-check.sh`).
+- **A tag deploys only a person's release:** `vMAJOR.MINOR.PATCH`, on `main`, the newest, the squash merge of release-please's PR merged by a person with write access, and Main passed on the commit before it. A rollback needs a published release and a person with write access. Tags cannot be protected on every plan, so the workflow checks.
+- **A library** releases itself: its release PR merges once its gate passed (`workflows.releasePlease.merge`); the tag deploys nothing.
+- **Production callers pin this repository by its immutable version tag**, so an AWS role can trust only those versions: `token.actions.githubusercontent.com:job_workflow_ref` like `<owner>/kheona-skill/.github/workflows/kskill-deploy.yml@refs/tags/v2.*`, with `sub` `repo:<owner>/<repo>:ref:refs/tags/v*`. Prove the exact value with a dry run before tightening a trust policy.
+- **A custom deploy:** `workflows.cd.target: "custom"`. The release check and the gate stay here; the repository's own workflow (`workflows.cd.custom.workflow`, default `deploy.yml`, `on: workflow_call` with the inputs `environment` and `version`) deploys, with its own credentials.
+- **This repository** releases the same way (`release.yml`): a person merges its release PR, the release is immutable, and each repository gets it through one Renovate PR that moves its callers and its preset pin together.
 
 ## Secrets
 
@@ -65,7 +84,7 @@ Set only what the repository uses. A workflow that lacks a required secret fails
 | `ASC_ISSUER_ID` | Flutter delivery | Yes | The App Store Connect issuer id. |
 | `ASC_API_KEY_BASE64` | Flutter delivery | Yes | The App Store Connect API key, `.p8`, base64, for the upload. |
 
-Flutter delivery also passes these through the ship workflow, so an app sets them once.
+Flutter delivery receives these through its caller, `kskill-deliver.yml`.
 
 ### On the token broker
 

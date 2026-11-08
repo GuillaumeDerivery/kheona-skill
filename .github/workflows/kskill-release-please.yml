@@ -1,38 +1,40 @@
 # This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
 # not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # Trigger: a push to main; the doctor's daily dispatch or a person's "release now"
-# Purpose: release-please: opens the release PR, merges it, tags and publishes the release, notifies the users
-# Effect: merges the release PR, creates the tag and GitHub release, dispatches the post-release workflows
-# a library releases itself. Versions by release-please from the Conventional Commits on main (`fix:` patch,
-# `feat:` minor, `!` or a BREAKING CHANGE footer major; the others release nothing), with the repository's own
-# release-please-config.json and .release-please-manifest.json. The chain, fully automatic, and no runner ever waits:
-#  1. On every push to main, release-please opens or updates its release PR (version, changelog: no code). If the gate
-#     already passed on the PR's head (nothing new to test), the same run merges it; otherwise it ends there.
-#  2. The release PR's own `Kheona Skill · PR` run (the default gate, kskill-pr.yml) squash-merges it once CI passed, at
-#     the commit it tested (--match-head-commit), as one of its merge rules. A failed gate leaves the PR open for a person.
-#  3. The merge is a real `push` (the App token), so this workflow runs again: that run tags and creates the GitHub
-#     release, then runs the post-release hook from .kheona.json: the notice to the repositories that use this one
-#     (`notify`) and this repository's own follow-up workflows (`dispatch`).
-# With `merge: "daily"`, neither step 1 nor `Kheona Skill · PR` merges: only a `workflow_dispatch` run does (the Kheona
-# doctor's daily dispatch, or a person's "release now"), so a day's merges make one release. A
-# daily run that merges nothing runs `dispatch` itself: the post-release workflows run once a day either way. A gate
-# other than kskill-pr.yml (kheona-skill's own `ci.yml`) is merged by those runs alone.
-# Why the automation App (secrets KSKILL_TOKEN_BROKER_URL): a PR opened with GITHUB_TOKEN gets
-# `pull_request` runs GitHub holds and never starts (no jobs), and a merge with it starts no workflow. This repository's
-# token writes; the notice mints one per owner (.github/scripts/kskill-app-tokens.mjs). Missing: the job fails saying so.
-# Never: merges a PR other than release-please's own, merges a commit the gate did not pass, releases from a fork,
-# merges the release PR while .kheona.json `phase` is "bootstrap" (kskill-phase.sh --ship: the first release needs
-# "established").
+# Purpose: release-please: opens the release PR; a library's merges itself, every other repository's waits for a person
+# Effect: opens and updates the release PR; once merged, creates the version tag and the GitHub release (with the App
+#         token, so the tag's push starts the production deploy or delivery); a library's release dispatches its users
+# Every repository releases with release-please, from the Conventional Commits on main (`fix:` patch, `feat:` minor,
+# `!` or a BREAKING CHANGE footer major; `chore:`, `ci:`, `docs:`... release nothing, so dependency updates are
+# `fix(deps)`), with its own release-please-config.json and .release-please-manifest.json:
+#  1. On every push to main, release-please opens or updates its release PR (version, CHANGELOG: no code).
+#  2. Who merges it, `workflows.releasePlease.merge`:
+#     - "person" (the default, and the only value outside a library): a person reads the PR and merges it. Its body ends
+#       with "Check before you merge" (.github/scripts/kskill-release.sh notes: where it goes, what to look at).
+#       Merging is the release: nothing merges it for them.
+#     - "gate" (a library's default): the PR's own `Kheona Skill · PR` run squash-merges it once CI passed, at the commit
+#       it tested; this run merges a head the gate already passed.
+#     - "daily" (a library): only a workflow_dispatch run merges it (the doctor's daily dispatch), so a day's merges
+#       make one release.
+#  3. The merge is a push to main, so this workflow runs again: release-please creates the tag and the GitHub release
+#     with the App token. The tag's push starts the repository's `kskill-deploy.yml` or `kskill-deliver.yml`, whose
+#     release check accepts only a release PR merged by a person (a library's tag deploys nothing). Then the post-release
+#     hook from .kheona.json: the notice to the repositories that use this one (`notify`) and this repository's own
+#     follow-up workflows (`dispatch`).
+# Why the automation App (variable KSKILL_TOKEN_BROKER_URL): a PR opened with GITHUB_TOKEN gets `pull_request` runs
+# GitHub holds and never starts, and a tag or merge made with it starts no workflow. The notice mints one token per owner
+# (.github/scripts/kskill-app-tokens.mjs). Missing: the job fails saying so.
+# Never: merges a PR other than release-please's own, merges outside a library, merges a commit the gate did not pass,
+# releases from a fork, merges the release PR while .kheona.json `phase` is "bootstrap".
 #
 # .kheona.json `workflows.releasePlease` (a missing key means the default):
-#   gate      string    "kskill-pr.yml"  workflow file whose `pull_request` run on the release PR must pass
+#   merge     string    "person"; "gate" in a library   above; "gate" and "daily" are refused outside a library
+#   gate      string    "kskill-pr.yml"  (gate, daily) workflow file whose `pull_request` run on the release PR must pass
 #   notify    object    none             { "topic": "<topic>", "event": "<event_type>" }: after a release, sends
 #                                        `repository_dispatch` <event> (payload `tag`) to every non-fork repository
 #                                        carrying <topic> (kheona-skill's scripts/kskill-repos.sh) whose .gitmodules
 #                                        points at this repository; one it cannot reach fails the run
 #   dispatch  string[]  []               workflow files of this repository run on main after a release
-#   merge     string    "gate"           "gate": the release PR merges as soon as the gate passes on it; "daily": only
-#                                        a workflow_dispatch run merges it (above)
 name: Kheona Skill · Release
 
 on:
@@ -87,9 +89,11 @@ jobs:
         with:
           broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
 
+      # The full history and the tags: the release notes compare main with the last version tag.
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Read the configuration
@@ -109,8 +113,14 @@ jobs:
           fi
           jq -e '(.dispatch // []) | type == "array" and all(type == "string")' <<<"$cfg" >/dev/null ||
             fail "workflows.releasePlease.dispatch must be an array of workflow file names."
-          merge=$(jq -r '.merge // "gate"' <<<"$cfg")
-          case "$merge" in gate|daily) ;; *) fail "workflows.releasePlease.merge must be \"gate\" or \"daily\" (got \"$merge\")." ;; esac
+          role=$(jq -r '.role // "project"' .kheona.json 2>/dev/null || echo project)
+          default=person; [ "$role" != library ] || default=gate
+          merge=$(jq -r --arg d "$default" '.merge // $d' <<<"$cfg")
+          case "$merge" in
+            person) ;;
+            gate|daily) [ "$role" = library ] || fail "workflows.releasePlease.merge \"$merge\" is for a library: here merging the release PR releases to production, so a person merges it (\"person\", the default)." ;;
+            *) fail "workflows.releasePlease.merge must be \"person\", \"gate\" or \"daily\" (got \"$merge\")." ;;
+          esac
           {
             echo "gate=$gate"
             echo "merge=$merge"
@@ -136,6 +146,10 @@ jobs:
           MERGE: ${{ steps.config.outputs.merge }}
         run: |
           set -euo pipefail
+          if [ "$MERGE" = person ]; then
+            echo "merge: person: a person merges the release PR; merging it releases." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           if [ "$MERGE" = daily ] && [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
             echo "merge: daily: the release PR is merged by the next workflow_dispatch run (the doctor's, or a person's)." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -160,6 +174,25 @@ jobs:
           echo "Release PR #$number ($sha): $GATE already passed on it (run $passed)."
           echo "number=$number" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # What the person reads before merging: kskill-release.sh notes, between its markers at the end of the body.
+      - name: Add the checklist to the release PR
+        if: steps.release.outputs.releases_created != 'true' && steps.config.outputs.merge == 'person'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
+        run: |
+          set -euo pipefail
+          number="$(printf '%s' "${RELEASE_PR:-}" | jq -r '.number // empty' 2>/dev/null || true)"
+          [ -n "$number" ] || number="$(gh pr list --state open --label 'autorelease: pending' --json number --jq '.[0].number // empty')"
+          [ -n "$number" ] || { echo "No release PR open."; exit 0; }
+          fork="$(gh api "repos/$GH_REPO" --jq .fork)"
+          notes="$(KSKILL_MAIN=origin/main KSKILL_FORK="$fork" bash "$KSKILL_HOME/.github/scripts/kskill-release.sh" notes)"
+          [ -n "$notes" ] || exit 0
+          body="$(gh pr view "$number" --json body --jq .body | sed '/<!-- kskill-release-notes:start -->/,/<!-- kskill-release-notes:end -->/d')"
+          printf '%s\n\n%s\n' "$body" "$notes" > "$RUNNER_TEMP/body.md"
+          gh pr edit "$number" --body-file "$RUNNER_TEMP/body.md" > /dev/null
+          echo "Release PR #$number: checklist written." >> "$GITHUB_STEP_SUMMARY"
 
       # a library's first release ends its bootstrap phase.
       - name: Check the phase
