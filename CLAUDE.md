@@ -13,6 +13,8 @@ Whatever a workflow needs about the outside world comes from the calling reposit
 
 Reusable workflows, composite actions, the scripts they run, shared tool configs, Renovate presets and the token broker. A repository calls them through small generated caller files, pinned by commit SHA.
 
+Every owner brings its own GitHub App and token broker; this repository never names either. `KSKILL_BOT` (the App's `<app-slug>[bot]`) and `KSKILL_TOKEN_BROKER_URL` are required repository variables with no default. The guard accepts one App as an author: `<this repository's name>[bot]`, the App that releases this repository; its commit messages are still scanned.
+
 ## Working here
 
 - `bash test/run-all.sh` runs every test. CI runs the same.
