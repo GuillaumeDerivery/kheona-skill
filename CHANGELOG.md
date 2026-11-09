@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.2](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.2.1...v2.2.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* the Sentry triage asks the broker for its own tokens ([#31](https://github.com/GuillaumeDerivery/kheona-skill/issues/31)) ([e2ff5ed](https://github.com/GuillaumeDerivery/kheona-skill/commit/e2ff5edb81c3348e0db9445e14c0d6f52c723c45))
+
 ## [2.2.1](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.2.0...v2.2.1) (2026-11-09)
 
 
