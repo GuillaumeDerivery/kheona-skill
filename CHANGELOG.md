@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.1.1...v2.2.0) (2026-11-09)
+
+
+### Features
+
+* the release path tests what it ships ([#27](https://github.com/GuillaumeDerivery/kheona-skill/issues/27)) ([1683119](https://github.com/GuillaumeDerivery/kheona-skill/commit/1683119edee0160186f343c126ecf900e86265f4))
+
 ## [2.1.1](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.1.0...v2.1.1) (2026-11-09)
 
 
