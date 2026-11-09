@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.1.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.0.2...v2.1.0) (2026-11-09)
+
+
+### Features
+
+* the kheona Claude Code skill lives here: SKILL.md, stacks/, enforce.sh ([#21](https://github.com/GuillaumeDerivery/kheona-skill/issues/21)) ([9b0b2e7](https://github.com/GuillaumeDerivery/kheona-skill/commit/9b0b2e71d0f0b33e617d9aca75198383cc3f7641))
+
+
+### Bug Fixes
+
+* **renovate:** run as the App's own login, so Renovate finds its Dependency Dashboard ([#22](https://github.com/GuillaumeDerivery/kheona-skill/issues/22)) ([3ee97ea](https://github.com/GuillaumeDerivery/kheona-skill/commit/3ee97ea29d48eeee71e8a8925a32fab32f1c1b01))
+
 ## [2.0.2](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.0.1...v2.0.2) (2026-11-09)
 
 
