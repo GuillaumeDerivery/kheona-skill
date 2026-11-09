@@ -13,9 +13,10 @@
 #   2. the tagged commit is on the default branch (the compare API: the checkout is shallow);
 #   3. a push (the release): the tag is the newest version tag, and the commit is the squash merge of a
 #      release-please PR of this repository, merged by a person (not a bot) with write access;
-#      a dispatch (a rollback, or the same release again): the tag is a published release, and the person who
-#      started the run (triggering_actor) has write access;
-#   4. a push: Kheona Skill · Main passed on the commit before the release (its staging deploy included): the release
+#      a dispatch (a rollback, or the same release again), or a push in a fork (release-please never runs in one: a
+#      person publishes the parent's version there): the tag is a published release, and the person who started the
+#      run (triggering_actor) has write access;
+#   4. a push outside a fork: Kheona Skill · Main passed on the commit before the release (its staging deploy included): the release
 #      commit only changes the version and the CHANGELOG, and never ran on staging itself.
 # Writes environment=staging|prod and, for prod, version=<tag> to $GITHUB_OUTPUT.
 # Env: GH_TOKEN (contents, pull-requests and actions read), GH_REPO, EVENT_NAME, GITHUB_REF, GITHUB_SHA,
@@ -53,7 +54,9 @@ tag=${GITHUB_REF#refs/tags/}
 status=$(api "repos/$GH_REPO/compare/$main...$GITHUB_SHA" --jq .status)
 case "$status" in identical|behind) ;; *) fail "$tag ($GITHUB_SHA) is not on $main (compare: $status): it deploys nothing." ;; esac
 
-if [ "$EVENT_NAME" = push ]; then
+fork=false
+[ "$EVENT_NAME" = push ] && fork=$(api "repos/$GH_REPO" --jq .fork)
+if [ "$EVENT_NAME" = push ] && [ "$fork" != true ]; then
   # 3, the release
   newest=$(api --paginate "repos/$GH_REPO/tags?per_page=100" --jq '.[].name' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
   [ "$newest" = "$tag" ] || fail "$tag is not the newest version ($newest): a rollback is started by hand on the tag."
@@ -74,10 +77,11 @@ if [ "$EVENT_NAME" = push ]; then
   [ -n "$passed" ] || fail "Kheona Skill · Main has not passed on ${parent:0:7}, the commit before $tag: production waits for staging. Re-run it, then start this workflow on $tag by hand."
   echo "Release $tag: PR #$pr merged by $merger; staging passed on ${parent:0:7} ($passed)." | tee -a "$summary"
 else
-  # 3, a rollback or the same release again
+  # 3, a rollback, the same release again, or a fork's release
   draft=$(api "repos/$GH_REPO/releases/tags/$tag" --jq .draft)
   [ "$draft" = false ] || fail "$tag is not a published release."
   person "${ACTOR:-}"
-  echo "Deploy of $tag started by ${ACTOR}." | tee -a "$summary"
+  if [ "$fork" = true ]; then echo "Fork release $tag published by ${ACTOR}." | tee -a "$summary"
+  else echo "Deploy of $tag started by ${ACTOR}." | tee -a "$summary"; fi
 fi
 { echo "environment=prod"; echo "version=$tag"; } >> "$out"

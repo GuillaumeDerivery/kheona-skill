@@ -25,6 +25,7 @@ case "$path" in
   */pulls/*) f=pr.json ;;
   */actions/runs\?*) f=runs.json ;;
   */releases/tags/*) f=release.json ;;
+  repos/o/r) f=repo.json ;;
   */collaborators/*/permission) f="perm-$(cut -d/ -f5 <<<"$path").json" ;;
   *) echo "fake gh: unexpected $*" >&2; exit 1 ;;
 esac
@@ -45,6 +46,7 @@ good() { # a release PR merged by a person, staging green on the parent
   put release.json '{"draft":false}'
   put perm-ann.json '{"role_name":"write"}'
   put perm-bob.json '{"role_name":"read"}'
+  put repo.json '{"fork":false}'
 }
 run() { # run <event> <ref> [actor]
   : > "$T/out"
@@ -90,6 +92,13 @@ out=$(run workflow_dispatch refs/tags/v1.9.0 ann); check "a rollback to a draft:
 rm "$FAKE/release.json"
 out=$(run workflow_dispatch refs/tags/v1.9.0 ann); check "a rollback to a tag with no release: refused" "$out" '^rc=1$'
 check "... and no environment written"                                                              "$(cat "$T/out")" '^$'
+good; put repo.json '{"fork":true}'; put pulls.json '[]'; rm "$FAKE/runs.json"
+out=$(run push refs/tags/v1.10.0 ann);          check "a fork's published release: prod"           "$out" '^version=v1.10.0$'
+out=$(run push refs/tags/v1.10.0 bob);          check "a fork's release by a reader: refused"      "$out" "has 'read' access"
+put release.json '{"draft":true}'
+out=$(run push refs/tags/v1.10.0 ann);          check "a fork's tag with no published release: refused" "$out" 'not a published release'
+good; rm "$FAKE/repo.json"
+out=$(run push refs/tags/v1.10.0);              check "fork unknown: refused"                      "$out" 'does not deploy when unsure'
 
 echo "release-check: $pass passed, $failn failed"
 [ "$failn" = 0 ]
