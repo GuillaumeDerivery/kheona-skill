@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.1.0...v2.1.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **renovate:** mint the owner's token through the broker's across-owners grant ([#24](https://github.com/GuillaumeDerivery/kheona-skill/issues/24)) ([d343ebb](https://github.com/GuillaumeDerivery/kheona-skill/commit/d343ebb02bcd2e8fd4e30dde26ea8665d764e6fd))
+
 ## [2.1.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.0.2...v2.1.0) (2026-11-09)
 
 
