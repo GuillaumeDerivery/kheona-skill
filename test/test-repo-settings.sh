@@ -143,30 +143,29 @@ check "kheona-skill carries no topic and is not asked to" "$(j '[.ok, ([.setting
 # Actions variables: derived from .kheona.json, "false" where a workflow is switched off, absent otherwise.
 good owner/tpl; kj owner/tpl '{"role":"template","workflows":{"cd":{"templateRepository":"owner/tpl","staging":false,"prod":false}}}'
 out=$(run owner/tpl --json); rc=$?
-check "variables: a template switches the deploys off; no CI on release-please's PR" \
+check "variables: a template switches the deploys off; CI on release-please's PR" \
   "$(j '[.settings[] | select(.api == "variable" and .key != "variable_bot") | {(.key): .want}] | add' <<<"$out") $(j .drift <<<"$out") $rc" \
-  '{"variable_cd_staging":"false","variable_cd_prod":"false","variable_release_pr":"","variable_release_pr_ci":"false","variable_ci_on_push":"","variable_dist_rebuild":"","variable_automerge":""} ["variable_cd_staging","variable_cd_prod","variable_release_pr_ci"] 1'
+  '{"variable_cd_staging":"false","variable_cd_prod":"false","variable_release_pr":"","variable_release_pr_ci":"","variable_ci_on_push":"","variable_dist_rebuild":"","variable_automerge":""} ["variable_cd_staging","variable_cd_prod"] 1'
 out=$(run owner/tpl --apply --json); rc=$?
 check "variables: --apply creates the missing ones" "$(cat "$LOG") $(j .ok <<<"$out") $rc" \
 'POST repos/owner/tpl/actions/variables {"name":"KSKILL_CD_STAGING","value":"false"}
-POST repos/owner/tpl/actions/variables {"name":"KSKILL_CD_PROD","value":"false"}
-POST repos/owner/tpl/actions/variables {"name":"KSKILL_RELEASE_PR_CI","value":"false"} true 0'
+POST repos/owner/tpl/actions/variables {"name":"KSKILL_CD_PROD","value":"false"} true 0'
 # Its fork deploys: the inherited templateRepository names the parent, the fork has its own targets.
 good org/tfork true; kj org/tfork '{"role":"template","workflows":{"cd":{"templateRepository":"owner/tpl","staging":false,"prod":{"cluster":"c"}}}}'
-fix "repos/org/tfork/actions/variables?per_page=100" '{"variables":[{"name":"KSKILL_CD_PROD","value":"false"},{"name":"KSKILL_CD_STAGING","value":"no"},{"name":"OTHER","value":"x"},{"name":"KSKILL_BOT","value":"example-app[bot]"}]}'
+fix "repos/org/tfork/actions/variables?per_page=100" '{"variables":[{"name":"KSKILL_CD_PROD","value":"false"},{"name":"KSKILL_CD_STAGING","value":"no"},{"name":"OTHER","value":"x"},{"name":"KSKILL_RELEASE_PR_CI","value":"false"},{"name":"KSKILL_BOT","value":"example-app[bot]"}]}'
 out=$(run org/tfork --apply --json)
 check "variables: a fork's own prod deploys; stale ones are deleted or corrected" \
   "$(j '[.settings[] | select(.api == "variable" and .key != "variable_bot" and .want != "") | .key]' <<<"$out") $(grep variables "$LOG")" \
-  '["variable_cd_staging","variable_release_pr_ci"] PATCH repos/org/tfork/actions/variables/KSKILL_CD_STAGING {"name":"KSKILL_CD_STAGING","value":"false"}
+  '["variable_cd_staging"] PATCH repos/org/tfork/actions/variables/KSKILL_CD_STAGING {"name":"KSKILL_CD_STAGING","value":"false"}
 DELETE repos/org/tfork/actions/variables/KSKILL_CD_PROD
-POST repos/org/tfork/actions/variables {"name":"KSKILL_RELEASE_PR_CI","value":"false"}'
+DELETE repos/org/tfork/actions/variables/KSKILL_RELEASE_PR_CI'
 good org/sw; kj org/sw '{"role":"project","workflows":{"ci":{"runOnPush":false},"automerge":{"enabled":false},"cd":{"staging":{"cluster":"c"},"prod":{"cluster":"c"},"enabled":true}}}'
 out=$(run org/sw --json)
 check "variables: the automerge switch; runOnPush is retired (no variable); a deploying project keeps its deploys" \
-  "$(j '[.settings[] | select(.api == "variable" and .key != "variable_bot" and .want != "") | .variable]' <<<"$out")" '["KSKILL_RELEASE_PR_CI","KSKILL_AUTOMERGE"]'
+  "$(j '[.settings[] | select(.api == "variable" and .key != "variable_bot" and .want != "") | .variable]' <<<"$out")" '["KSKILL_AUTOMERGE"]'
 good org/cdoff; kj org/cdoff '{"role":"project","workflows":{"cd":{"enabled":false}}}'
 check "variables: workflows.cd.enabled false switches the deploys off" \
-  "$(run org/cdoff --json | j '[.settings[] | select(.api == "variable" and .key != "variable_bot" and .want != "") | .variable]')" '["KSKILL_CD_STAGING","KSKILL_CD_PROD","KSKILL_RELEASE_PR_CI"]'
+  "$(run org/cdoff --json | j '[.settings[] | select(.api == "variable" and .key != "variable_bot" and .want != "") | .variable]')" '["KSKILL_CD_STAGING","KSKILL_CD_PROD"]'
 good me/lib2; kj me/lib2 '{"role":"library"}'
 check "variables: a library without workflows.cd gets none" "$(run me/lib2 --json | j '[.settings[] | select(.api == "variable" and .key != "variable_bot" and .want != "")] | length')" 0
 good me/lib3; kj me/lib3 '{"role":"library","workflows":{"distRebuild":{}}}'

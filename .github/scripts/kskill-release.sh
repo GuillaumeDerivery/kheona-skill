@@ -129,11 +129,48 @@ risks_markdown() {
   [ -z "$f" ] || out "**Pipeline** changes ship with this release: $f."
   f=$(awk -F '\t' '$2 ~ /(^|\/)Dockerfile[^\/]*$|^(k8s|kubernetes|helm|deploy|infra|terraform)\// { printf "%s`%s`", (n++ ? ", " : ""), $2 }' <<<"$names")
   [ -z "$f" ] || out "**Image or infrastructure**: $f."
-  git diff --raw --no-renames "$BASE" "$MAIN" | awk '$2 == "160000" || $1 ~ /160000/ { print $3 " " $4 " " $6 }' | while read -r a b p; do
-    out "**Submodule** \`$p\` moves ${a:0:7} -> ${b:0:7}."
+  git diff --raw --no-abbrev --no-renames "$BASE" "$MAIN" | awk '$2 == "160000" || $1 ~ /160000/ { print $3 " " $4 " " $6 }' | while read -r a b p; do
+    submodule_line "$p" "$a" "$b"
   done
   f=$(awk -F '\t' '$2 ~ /(^|\/)(package-lock\.json|pubspec\.lock|Pipfile\.lock|poetry\.lock|uv\.lock|yarn\.lock|pnpm-lock\.yaml)$/ { printf "%s`%s`", (n++ ? ", " : ""), $2 }' <<<"$names")
   [ -z "$f" ] || out "**Dependencies** change: $f."
+}
+
+# The version tag of a submodule's commit, from its GitHub repository (.gitmodules on main); empty when unknown
+# (no access, not on GitHub, no tag on that commit).
+submodule_tag() {
+  local path=$1 sha=$2 name url repo
+  name=$(git config --blob "$MAIN:.gitmodules" --get-regexp '^submodule\..*\.path$' 2>/dev/null |
+    awk -v p="$path" '$2 == p { sub(/^submodule\./, "", $1); sub(/\.path$/, "", $1); print $1; exit }')
+  [ -n "$name" ] || return 0
+  url=$(git config --blob "$MAIN:.gitmodules" --get "submodule.$name.url" 2>/dev/null || true)
+  url=${url%.git}
+  case "$url" in
+    https://github.com/*/*) repo=${url#https://github.com/} ;;
+    git@github.com:*/*) repo=${url#git@github.com:} ;;
+    ../../*/*) repo=${url#../../} ;;
+    ../*) [ -n "$REPOSITORY" ] && repo="${REPOSITORY%%/*}/${url#../}" ;;
+  esac
+  [[ "${repo:-}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || return 0
+  command -v gh > /dev/null || return 0
+  gh api --paginate "repos/$repo/tags?per_page=100" --jq ".[] | select(.commit.sha == \"$sha\") | .name" 2>/dev/null |
+    grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true
+}
+
+# A moved submodule: its versions when known, and a major version called out: a library's major version can need
+# production configuration before the release deploys (a renamed or newly required key).
+submodule_line() {
+  local p=$1 a=$2 b=$3 ta tb
+  ta=$(submodule_tag "$p" "$a"); tb=$(submodule_tag "$p" "$b")
+  if [ -n "$ta" ] && [ -n "$tb" ]; then
+    if [ "$(sed -E 's/^v?([0-9]+).*/\1/' <<<"$ta")" != "$(sed -E 's/^v?([0-9]+).*/\1/' <<<"$tb")" ]; then
+      out "**Submodule** \`$p\` moves $ta -> $tb: **a major version**. Read its breaking changes: production configuration may need changing before this merges."
+    else
+      out "**Submodule** \`$p\` moves $ta -> $tb."
+    fi
+  else
+    out "**Submodule** \`$p\` moves ${a:0:7} -> ${b:0:7}${ta:+ (from $ta)}${tb:+ (to $tb)}. Versions unknown: check for a major version and the configuration it needs."
+  fi
 }
 
 notes() {

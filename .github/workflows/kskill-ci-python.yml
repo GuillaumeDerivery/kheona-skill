@@ -13,8 +13,6 @@
 # deploy (`uses: ./.github/workflows/kskill-ci.yml`, where every repository installs its stack's CI, `needs:`); by hand.
 # Once per tree (kskill-tested-tree.sh): a push to the default branch (kskill-main.yml's call) whose tree a green
 # `Kheona Skill · PR` run tested, runs only its first job; a version tag and dispatches always run in full.
-# Not on release-please's PR outside a library (vars.KSKILL_RELEASE_PR_CI): a person merges it, and the version tag
-# runs this gate in full before production; the job-level `if:` skips it before any runner starts.
 # It never pushes, publishes or deploys anything; it only reads. Secrets read: KSKILL_TOKEN_BROKER_URL (the automation App, repository check only).
 # Python version: read from .python-version, Pipfile [requires] or pyproject requires-python (never set here).
 # Tools (ruff, black, pylint, mypy, pip-audit, pytest-cov) come from the repository's locked dev packages,
@@ -67,8 +65,6 @@ env:
 jobs:
   config:
     name: Read the configuration
-    # Not on release-please's PR outside a library (KSKILL_RELEASE_PR_CI): the version tag runs this gate in full.
-    if: ${{ !(startsWith(github.head_ref, 'release-please--') && vars.KSKILL_RELEASE_PR_CI == 'false') }}
     permissions:
       contents: read
       actions: read
