@@ -207,7 +207,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}   # tflint --init: plugin downloads from GitHub, read-only
         run: |
           cd "$RUNNER_TEMP"
-          curl -fsSLO "https://github.com/terraform-linters/tflint/releases/download/${TFLINT_VERSION}/tflint_linux_amd64.zip"
+          curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -O "https://github.com/terraform-linters/tflint/releases/download/${TFLINT_VERSION}/tflint_linux_amd64.zip"
           echo "${TFLINT_SHA256}  tflint_linux_amd64.zip" | sha256sum -c -
           unzip -q -o tflint_linux_amd64.zip -d "$RUNNER_TEMP/bin"
           cd "$GITHUB_WORKSPACE"
@@ -222,7 +222,7 @@ jobs:
         run: |
           cd "$RUNNER_TEMP"
           tarball="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${tarball}"
+          curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -O "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${tarball}"
           echo "${TRIVY_SHA256}  ${tarball}" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/bin" && tar -xzf "$tarball" -C "$RUNNER_TEMP/bin" trivy
           cd "$GITHUB_WORKSPACE"
@@ -243,7 +243,7 @@ jobs:
           K8S: ${{ steps.read.outputs.k8s }}
         run: |
           cd "$RUNNER_TEMP"
-          curl -fsSLO "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -O "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
           echo "${KUBECONFORM_SHA256}  kubeconform-linux-amd64.tar.gz" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/bin" && tar -xzf kubeconform-linux-amd64.tar.gz -C "$RUNNER_TEMP/bin" kubeconform
           cd "$GITHUB_WORKSPACE"

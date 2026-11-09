@@ -128,7 +128,7 @@ runs:
           aarch64|arm64) arch=arm64 sum=$KUBECTL_SHA256_ARM64 ;;
           *) echo "::error::No kubectl checksum for runner architecture $(uname -m)."; exit 1 ;;
         esac
-        curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${arch}/kubectl"
+        curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -O "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${arch}/kubectl"
         echo "${sum}  kubectl" | sha256sum --check
         chmod +x kubectl
         sudo mv kubectl /usr/local/bin/
