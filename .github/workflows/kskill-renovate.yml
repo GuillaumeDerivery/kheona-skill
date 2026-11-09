@@ -114,13 +114,23 @@ jobs:
           name: renovate-config
           path: ${{ runner.temp }}/renovate
 
-      # The owner's installation token: Renovate's platform token (branches, PRs, merges).
+      # The owner's installation token: Renovate's platform token (branches, PRs, merges). One token per owner is the
+      # broker's across-owners grant (its acrossOwners policy), the same as the plan's.
       - name: Mint the owner's token
         id: owner
-        uses: $/.github/actions/kskill-token
-        with:
-          broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
-          repository: ${{ matrix.owner }}/
+        env:
+          KSKILL_TOKEN_BROKER_URL: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
+          OWNER: ${{ matrix.owner }}
+        run: |
+          node "$KSKILL_HOME/.github/scripts/kskill-app-tokens.mjs" "$RUNNER_TEMP/kskill-app"
+          token=$(jq -r --arg o "${OWNER,,}" '.[$o] // empty' "$RUNNER_TEMP/kskill-app/tokens.json")
+          rm -rf "$RUNNER_TEMP/kskill-app"
+          if [ -z "$token" ]; then
+            echo "::error::The App is not installed on $OWNER."
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
 
       # Read-only, $KSKILL_REPO (the preset) and the library repository (the submodule).
       - name: Mint the library token
