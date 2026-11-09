@@ -6,7 +6,10 @@
 // its parent. A workflow that touches only its own repository, or kheona-skill and lib, uses
 // the kskill-token action instead.
 //
-// Usage: node kskill-app-tokens.mjs <dir> [--install]
+// Usage: node kskill-app-tokens.mjs <dir> [--install] [--self]
+//   --self: not every owner, only this repository's (its own token) and, for a fork, its parent's (the broker's
+//   /token with the parent named, which it checks): what a job inside one repository needs, such as the Sentry triage.
+//   Without it, POST /tokens, which the broker keeps for the repositories its policy lists in acrossOwners.
 // Env:   KSKILL_TOKEN_BROKER_URL, and the job's OIDC identity (id-token: write).
 // Writes <dir>/tokens.json ({ "<owner, lower case>": "<token>" }, mode 600) and two commands in <dir>/bin:
 //   gh                      runs the real gh with GH_TOKEN set to the token of the owner the command names
@@ -30,10 +33,34 @@ if (!broker || !idUrl) {
   console.error('::error::KSKILL_TOKEN_BROKER_URL is not set, or this job has no id-token: write.');
   process.exit(1);
 }
+const self = process.argv.includes('--self');
+const api = (process.env.KSKILL_GITHUB_API || 'https://api.github.com').replace(/\/$/, '');
 const identity = (await (await fetch(`${idUrl}&audience=kskill-token-broker`, { headers: { authorization: `bearer ${idToken}` } })).json()).value;
-const response = await fetch(`${broker.replace(/\/$/, '')}/tokens`, { method: 'POST', headers: { authorization: `Bearer ${identity}` } });
-if (!response.ok) { console.error(`::error::The token broker refused: HTTP ${response.status}`); process.exit(1); }
-const { tokens } = await response.json();
+const ask = async (path, body) => {
+  const r = await fetch(`${broker.replace(/\/$/, '')}${path}`, {
+    method: 'POST', headers: { authorization: `Bearer ${identity}`, 'content-type': 'application/json' }, body: JSON.stringify(body || {}),
+  });
+  if (!r.ok) {
+    const why = await r.json().then((b) => b.error, () => '');
+    console.error(`::error::The token broker refused${path === '/tokens' ? '' : ` ${body?.repository || 'this repository'}`}: HTTP ${r.status}${why ? ` ${why}` : ''}`);
+    process.exit(1);
+  }
+  return r.json();
+};
+let tokens = {};
+if (self) {
+  const repository = process.env.GITHUB_REPOSITORY || '';
+  const owner = repository.split('/')[0].toLowerCase();
+  if (!owner) { console.error('::error::GITHUB_REPOSITORY is not set.'); process.exit(1); }
+  tokens[owner] = (await ask('/token')).token;
+  const info = await (await fetch(`${api}/repos/${repository}`, { headers: { authorization: `Bearer ${tokens[owner]}` } })).json();
+  const parent = info.parent?.full_name || '';
+  const parentOwner = parent.split('/')[0].toLowerCase();
+  if (parent && parentOwner !== owner) tokens[parentOwner] = (await ask('/token', { repository: parent })).token;
+  else if (parent) console.log(`::warning::${parent} has this repository's owner: gh and git use this repository's token for it.`);
+} else {
+  ({ tokens } = await ask('/tokens'));
+}
 for (const [owner, token] of Object.entries(tokens)) {
   if (process.env.GITHUB_ACTIONS === 'true') console.log(`::add-mask::${token}`);
   console.log(`Token minted for ${owner}.`);
