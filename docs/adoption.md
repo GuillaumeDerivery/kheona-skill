@@ -27,7 +27,7 @@ Every owner runs its own GitHub App and its own token broker. Nothing is shared:
    }
    ```
 
-2. **Releases:** `release-please-config.json` and `.release-please-manifest.json` at the root, the manifest seeded at the current version (`{".": "1.4.0"}`), and squash merges only (the settings script sets it). See the README's "Releases and deploys".
+2. **Releases:** `release-please-config.json` and `.release-please-manifest.json` at the root, the manifest seeded at the current version on several lines (`{\n  ".": "1.4.0"\n}`: release-please keeps that indent, while a one-line manifest comes back compact and fails Prettier), and squash merges only (the settings script sets it). See the README's "Releases and deploys".
 3. **Caller files**, one per event. The stack is read from the repository:
 
    ```bash
