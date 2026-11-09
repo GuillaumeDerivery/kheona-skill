@@ -79,7 +79,7 @@ jobs:
           REPOSITORIES: ${{ inputs.repositories }}
           DRY_RUN: ${{ inputs.dry_run && 'full' || '' }}
         run: |
-          bash scripts/kskill-renovate-plan.sh "$RUNNER_TEMP/renovate" | tee -a "$GITHUB_STEP_SUMMARY"
+          bash "$KSKILL_HOME/scripts/kskill-renovate-plan.sh" "$RUNNER_TEMP/renovate" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "owners=$(cat "$RUNNER_TEMP/renovate/owners.json")" >> "$GITHUB_OUTPUT"
           rm -rf "$RUNNER_TEMP/kskill-app"
 
