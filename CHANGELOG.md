@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.2](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.0.1...v2.0.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* **ci:** retry tool downloads; free disk on the Android delivery runner ([#11](https://github.com/GuillaumeDerivery/kheona-skill/issues/11)) ([8556e7e](https://github.com/GuillaumeDerivery/kheona-skill/commit/8556e7e6be7e3c6efa9c3d3dc9997d470237212f))
+* **renovate:** run the plan script from this version's files, not the caller's checkout ([#19](https://github.com/GuillaumeDerivery/kheona-skill/issues/19)) ([69da522](https://github.com/GuillaumeDerivery/kheona-skill/commit/69da522a2e1138153e2442fe94b3468ce1ff336b))
+
 ## [2.0.1](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.0.0...v2.0.1) (2026-11-09)
 
 
