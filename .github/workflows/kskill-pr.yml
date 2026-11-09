@@ -6,8 +6,7 @@
 # The one workflow of a pull request, every stack: one run per push, its jobs chained by
 # `needs:`, nothing chained by workflow_run or dispatch.
 #   1. CI: the stack's gate, `.github/workflows/kskill-ci.yml` (called; its first job also runs the repository check,
-#      ). Not on release-please's PR outside a library (vars.KSKILL_RELEASE_PR_CI): a person merges it, and the
-#      version tag runs the gate in full before production.
+#      ), release-please's PR included: its tree is what the version tag ships, so a person merges it after a green gate.
 #   2. Claude review, once CI passed, on a PR an automation opened (branches renovate/, doctor/, fix/sentry-, claude/,
 #      chore/bump-lib, chore/refresh-, chore/sync-upstream; never release-please's or the release PR, which
 #      carry only reviewed work), not a draft: one comment updated in place, a verdict (OK to merge / needs a person /
@@ -80,7 +79,7 @@ env:
 jobs:
   ci:
     name: CI
-    if: "!(startsWith(github.head_ref, 'release-please--') && vars.KSKILL_RELEASE_PR_CI == 'false') && github.event.action != 'ready_for_review'"
+    if: github.event.action != 'ready_for_review'
     uses: ./.github/workflows/kskill-ci.yml
     permissions:
       contents: read

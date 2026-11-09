@@ -23,7 +23,7 @@ case "$path" in
   */commits/*/pulls) f=pulls.json ;;
   */commits/*) f=commit.json ;;
   */pulls/*) f=pr.json ;;
-  */actions/runs\?*) f=runs.json ;;
+  */actions/runs\?*) f=runs.json; [ -f "$FAKE/runs.next.json" ] && [ -f "$FAKE/runs.json" ] && { jq -r "$jqx" "$FAKE/runs.json"; mv "$FAKE/runs.next.json" "$FAKE/runs.json"; exit 0; } ;;
   */releases/tags/*) f=release.json ;;
   repos/o/r) f=repo.json ;;
   */collaborators/*/permission) f="perm-$(cut -d/ -f5 <<<"$path").json" ;;
@@ -42,7 +42,7 @@ good() { # a release PR merged by a person, staging green on the parent
   put pulls.json "[{\"number\":5,\"merged_at\":\"x\",\"merge_commit_sha\":\"$S\",\"base\":{\"ref\":\"main\"}}]"
   put pr.json '{"head":{"ref":"release-please--branches--main","repo":{"full_name":"o/r"}},"merged_by":{"login":"ann","type":"User"}}'
   put commit.json '{"parents":[{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]}'
-  put runs.json '{"workflow_runs":[{"path":".github/workflows/kskill-main.yml","head_branch":"main","conclusion":"success","html_url":"https://run/1"}]}'
+  put runs.json '{"workflow_runs":[{"path":".github/workflows/kskill-main.yml","head_branch":"main","status":"completed","conclusion":"success","html_url":"https://run/1"}]}'
   put release.json '{"draft":false}'
   put perm-ann.json '{"role_name":"write"}'
   put perm-bob.json '{"role_name":"read"}'
@@ -79,8 +79,17 @@ good; put pr.json '{"head":{"ref":"release-please--branches--main","repo":{"full
 out=$(run push refs/tags/v1.10.0);              check "merged by a bot: refused"                   "$out" 'only a person releases'
 good; put pr.json '{"head":{"ref":"release-please--branches--main","repo":{"full_name":"o/r"}},"merged_by":{"login":"bob","type":"User"}}'
 out=$(run push refs/tags/v1.10.0);              check "merged by a reader: refused"                "$out" "has 'read' access"
-good; put runs.json '{"workflow_runs":[{"path":".github/workflows/kskill-main.yml","head_branch":"main","conclusion":"failure","html_url":"x"}]}'
+good; put runs.json '{"workflow_runs":[{"path":".github/workflows/kskill-main.yml","head_branch":"main","status":"completed","conclusion":"failure","html_url":"x"}]}'
 out=$(run push refs/tags/v1.10.0);              check "staging failed on the parent: refused"      "$out" 'production waits for staging'
+good; put runs.json '{"workflow_runs":[{"path":".github/workflows/kskill-main.yml","head_branch":"main","status":"in_progress","conclusion":null,"html_url":"x"}]}'
+put runs.next.json '{"workflow_runs":[{"path":".github/workflows/kskill-main.yml","head_branch":"main","status":"completed","conclusion":"success","html_url":"https://run/2"}]}'
+out=$(KSKILL_MAIN_WAIT_INTERVAL=0 run push refs/tags/v1.10.0); check "staging still running on the parent: waits, then prod" "$out" '^environment=prod$'
+check "... saying it waited"                                                                        "$out" 'still runs on bbbbbbb.*waiting'
+good; put runs.json '{"workflow_runs":[{"path":".github/workflows/kskill-main.yml","head_branch":"main","status":"in_progress","conclusion":null,"html_url":"x"}]}'
+out=$(KSKILL_MAIN_WAIT_SECONDS=0 run push refs/tags/v1.10.0); check "staging still running past the wait: refused" "$out" 'still runs on bbbbbbb.*after 0 min'
+good; put runs.json '{"workflow_runs":[{"path":".github/workflows/kskill-main.yml","head_branch":"main","status":"in_progress","conclusion":null,"html_url":"x"}]}'
+put runs.next.json '{"workflow_runs":[{"path":".github/workflows/kskill-main.yml","head_branch":"main","status":"completed","conclusion":"failure","html_url":"x"}]}'
+out=$(KSKILL_MAIN_WAIT_INTERVAL=0 run push refs/tags/v1.10.0); check "staging fails while waited for: refused" "$out" 'production waits for staging'
 good; rm "$FAKE/runs.json"
 out=$(run push refs/tags/v1.10.0);              check "an API error: refused"                      "$out" 'does not deploy when unsure'
 good

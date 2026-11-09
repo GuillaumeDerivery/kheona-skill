@@ -13,7 +13,6 @@ Every value comes from the calling repository, set as an Actions variable on the
 | `KSKILL_AUTOMERGE` | PR | `false` stops merging automation PRs, a library's release PR excepted |
 | `KSKILL_DIST_REBUILD` | PR | `true` rebuilds a committed output on the PR's branch |
 | `KSKILL_CD_STAGING`, `KSKILL_CD_PROD` | Deploy, delivery | `false` turns that environment off (`PROD`: version tags) |
-| `KSKILL_RELEASE_PR_CI` | PR, CI | `false` skips CI on release-please's PR where a person merges it (the tag runs the gate) |
 | `BUILD_NUMBER_OVERRIDE` | Flutter delivery | Replaces the build number for one run |
 | `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_REGION_URL` | Sentry triage | Which Sentry project to read |
 

@@ -11,8 +11,6 @@
 # reachable from a feature branch. The repository check is its first step after the checkout.
 # Once per tree (kskill-tested-tree.sh): a push to the default branch whose tree a green `Kheona Skill · PR` run tested
 # skips every step after its first ones; a version tag (the delivery's gate) and dispatches always run in full.
-# Not on release-please's PR outside a library (vars.KSKILL_RELEASE_PR_CI): a person merges it, and the version tag
-# runs this gate in full before production; the job-level `if:` skips it before any runner starts.
 # Order : install from the lockfile, Android toolchain, format, analyze, repository
 # checks, local packages, tests, then the OSV scan of the lockfiles (a warning, never a failure here; on a PR
 # only when it changes a pubspec.lock or an osv-scanner.toml).
@@ -71,8 +69,6 @@ env:
 jobs:
   verify:
     name: Verify
-    # Not on release-please's PR outside a library (KSKILL_RELEASE_PR_CI): the version tag runs this gate in full.
-    if: ${{ !(startsWith(github.head_ref, 'release-please--') && vars.KSKILL_RELEASE_PR_CI == 'false') }}
     permissions:
       contents: read
       actions: read

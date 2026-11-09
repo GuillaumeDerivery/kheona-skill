@@ -71,6 +71,34 @@ commit 'chore: init' .kheona.json '{"role":"project","workflows":{"cd":{"target"
 run notes; check "custom target: its own workflow" grep -q 'workflows.cd.target' <<<"$OUT"
 check "custom target: no release yet, from the first commit" grep -q 'Since the first commit' <<<"$OUT"
 
+# --- a submodule: its versions from its repository's tags (a fake gh) -----------------------------------------
+LA=1111111111111111111111111111111111111111; LB=2222222222222222222222222222222222222222; LC=3333333333333333333333333333333333333333
+mkdir -p "$T/fakebin"
+cat > "$T/fakebin/gh" <<GH
+#!/usr/bin/env bash
+jqx=.; while [ "\$#" -gt 0 ]; do [ "\$1" = --jq ] && jqx=\$2; shift; done
+echo '[{"name":"v3.2.0","commit":{"sha":"$LA"}},{"name":"v3.3.0","commit":{"sha":"$LC"}},{"name":"v4.0.0","commit":{"sha":"$LB"}}]' | jq -r "\$jqx"
+GH
+chmod +x "$T/fakebin/gh"
+sub() { g update-index --add --cacheinfo "160000,$1,submodules/lib"; g commit -q -m "$2"; }
+new_repo sub
+commit 'chore: init' .kheona.json "$NODE_CFG" .gitmodules '[submodule "lib"]
+	path = submodules/lib
+	url = https://github.com/owner/lib.git'
+sub "$LA" 'chore: lib v3.2.0'; g tag v1.0.0
+sub "$LB" 'feat: lib v4 (#3)'
+OUT=$(cd "$R" && PATH="$T/fakebin:$PATH" KSKILL_MAIN=main GITHUB_REPOSITORY=o/r bash "$REL" notes 2>&1)
+check "submodule: a major version is called out" grep -qE 'submodules/lib` moves v3.2.0 -> v4.0.0: \*\*a major version' <<<"$OUT"
+g tag v1.1.0; sub "$LC" 'fix: lib back to 3.3 (#4)'
+OUT=$(cd "$R" && PATH="$T/fakebin:$PATH" KSKILL_MAIN=main GITHUB_REPOSITORY=o/r bash "$REL" notes 2>&1)
+check "submodule: a major version down is called out too" grep -qE 'v4.0.0 -> v3.3.0: \*\*a major' <<<"$OUT"
+g tag v1.2.0; sub "$LA" 'fix: lib 3.2 (#5)'
+OUT=$(cd "$R" && PATH="$T/fakebin:$PATH" KSKILL_MAIN=main GITHUB_REPOSITORY=o/r bash "$REL" notes 2>&1)
+check "submodule: a minor move, versions only" grep -qE 'moves v3.3.0 -> v3.2.0\.$' <<<"$OUT"
+mkdir -p "$T/nogh"; printf '#!/usr/bin/env bash\necho "HTTP 404" >&2; exit 1\n' > "$T/nogh/gh"; chmod +x "$T/nogh/gh"
+OUT=$(cd "$R" && PATH="$T/nogh:$PATH" KSKILL_MAIN=main GITHUB_REPOSITORY=o/r bash "$REL" notes 2>&1)
+check "submodule: no access to its repository, SHAs and a hint" grep -qE 'moves 3333333 -> 1111111\. Versions unknown' <<<"$OUT"
+
 # --- an app ------------------------------------------------------------------------------------------------
 new_repo app
 FL_CFG='{"role":"app","workflows":{"cd":{"ios":{"xcode":"26.6"},"android":{"lane":"internal"}}}}'

@@ -103,7 +103,7 @@ jobs:
     name: Read the delivery settings
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 50     # the release check waits up to 45 min for Main on the commit before
     permissions:
       contents: read
       pull-requests: read      # the release check: the release PR that made the tagged commit

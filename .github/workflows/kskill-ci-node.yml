@@ -41,8 +41,6 @@
 #   coveragePath    string  "coverage/"      the raw coverage report uploaded as the `coverage` artifact.
 # Once per tree (kskill-tested-tree.sh): a push to the default branch (kskill-main.yml's call) whose tree a green
 # `Kheona Skill · PR` run tested, runs only its first job; a version tag and dispatches always run in full.
-# Not on release-please's PR outside a library (vars.KSKILL_RELEASE_PR_CI): a person merges it, and the version tag
-# runs this gate in full before production; the job-level `if:` skips it before any runner starts.
 # .kheona.json `phase` (kskill-phase.sh): "bootstrap" runs the tests that exist (no `test` script: none yet, not
 # a failure) and reports the coverage threshold without failing on it; "established" (the default) gates both. A run
 # on a version tag (the production deploy's gate) fails while the repository is in bootstrap.
@@ -82,8 +80,6 @@ env:
 jobs:
   setup:
     name: Read the configuration
-    # Before any runner: not on release-please's PR outside a library (KSKILL_RELEASE_PR_CI).
-    if: ${{ !(startsWith(github.head_ref, 'release-please--') && vars.KSKILL_RELEASE_PR_CI == 'false') }}
     permissions:
       contents: read
       actions: read
