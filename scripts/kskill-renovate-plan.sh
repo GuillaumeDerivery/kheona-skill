@@ -18,6 +18,7 @@ OUT=${1:?usage: kskill-renovate-plan.sh <out-dir>}
 HERE=$(cd "$(dirname "$0")" && pwd)
 SKILL_REPO=${KSKILL_REPO:-}
 LIB=${KSKILL_LIB_REPO:-}
+BOT=${KSKILL_BOT:?KSKILL_BOT, the login of the App, is required}
 : "${KSKILL_APP_TOKENS:?KSKILL_APP_TOKENS (tokens.json of kskill-app-tokens.mjs) is required}"
 mkdir -p "$OUT"
 token_of() { jq -r --arg o "${1,,}" '.[$o] // empty' "$KSKILL_APP_TOKENS"; }
@@ -26,8 +27,12 @@ raw() { curl -fsS -H "Authorization: Bearer $1" -H 'Accept: application/vnd.gith
 if [ -n "${REPOSITORIES:-}" ]; then
   read -r -a repos <<<"$REPOSITORIES"
 else
-  mapfile -t repos < <(bash "$HERE/kskill-repos.sh" --topic kheona-skill --forks exclude; echo "$SKILL_REPO")
+  mapfile -t repos < <(bash "$HERE/kskill-repos.sh" --topic kheona-skill --forks exclude; [ -z "$SKILL_REPO" ] || echo "$SKILL_REPO")
 fi
+
+# The App's commits and its Dependency Dashboard: Renovate finds its own issues by this login, so it must be the App's.
+BOT_ID=$(curl -fsS "https://api.github.com/users/$(jq -rn --arg b "$BOT" '$b|@uri')" | jq -r .id)
+[ -n "$BOT_ID" ] && [ "$BOT_ID" != null ] || { echo "::error::No GitHub user $BOT" >&2; exit 1; }
 
 lib_token=$(token_of "${LIB%%/*}")
 lib_packages=$(raw "$lib_token" "$LIB" package.json |
@@ -45,10 +50,10 @@ owners='[]'
 for owner in $(printf '%s\n' "${repos[@]}" | cut -d/ -f1 | sort -fu); do
   [ -n "$(token_of "$owner")" ] || { echo "- $owner: the App is not installed there, skipped"; continue; }
   mine=$(printf '%s\n' "${repos[@]}" | awk -F/ -v o="$owner" 'tolower($1) == tolower(o)' | jq -Rnc '[inputs]')
-  jq -n --argjson repos "$mine" --argjson consumers "$consumers" --argjson pkgs "$lib_packages" --arg dry "${DRY_RUN:-}" '{
+  jq -n --argjson repos "$mine" --argjson consumers "$consumers" --argjson pkgs "$lib_packages" --arg dry "${DRY_RUN:-}" --arg bot "$BOT" --arg author "$BOT <$BOT_ID+$BOT@users.noreply.github.com>" '{
     platform: "github",
-    username: process.env.KSKILL_BOT,
-    gitAuthor: "${process.env.KSKILL_BOT_AUTHOR}",
+    username: $bot,
+    gitAuthor: $author,
     onboarding: false,
     requireConfig: "required",
     repositories: $repos,
