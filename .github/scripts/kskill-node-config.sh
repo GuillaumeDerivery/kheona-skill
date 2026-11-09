@@ -7,7 +7,7 @@
 # the key, so a typo never silently turns a check off. Never reads a secret.
 #
 # Usage, from the repository root: bash .github/scripts/kskill-node-config.sh ci|mutation
-# Inputs from the environment (ci only): EVENT_NAME (github.event_name), CALLED ("true" under workflow_call),
+# Inputs from the environment (ci only): EVENT_NAME (github.event_name), CALLED ("true" under workflow_call, unused),
 # PHASE (kskill-phase.sh: in "bootstrap" a missing test or coverage:check script means no tests yet, not a failure).
 # Keys: see the header of kskill-ci-node.yml (`workflows.ci`) and kskill-inbox.yml's mutation job (`workflows.mutation`).
 set -euo pipefail
@@ -166,15 +166,10 @@ if [ "$mode" = ci ]; then
   int_in "$timeout" 5 360 workflows.ci.timeoutMinutes
   emit timeout "$timeout"
 
-  # A deploy that calls this gate on a push to main already runs it; a second, standalone run of the same
-  # commit only spends minutes. runOnPush=false skips the standalone push run, never a called one.
-  on_push="$(get "$ci" runOnPush boolean true workflows.ci)"
-  run=true
-  if [ "${EVENT_NAME:-}" = push ] && [ "${CALLED:-false}" != true ] && [ "$on_push" = false ]; then
-    run=false
-    echo "::notice::Standalone push run skipped (workflows.ci.runOnPush is false): the deploy that calls this gate runs it."
-  fi
-  emit run "$run"
+  # workflows.ci.runOnPush is retired, accepted and ignored: every push run of this gate is a called one (Main, the
+  # production deploy), and skipping it there would deploy untested.
+  get "$ci" runOnPush boolean true workflows.ci > /dev/null
+  emit run true
 
 elif [ "$mode" = mutation ]; then
   unknown "$mu" workflows.mutation script concurrency incremental testsDir reportPath timeoutMinutes
