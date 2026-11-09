@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.1](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.2.0...v2.2.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* the Node gate never skips a push run ([#29](https://github.com/GuillaumeDerivery/kheona-skill/issues/29)) ([d8cecd4](https://github.com/GuillaumeDerivery/kheona-skill/commit/d8cecd4febdbc6feba78d00d05e319459624abaf))
+
 ## [2.2.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.1.1...v2.2.0) (2026-11-09)
 
 
