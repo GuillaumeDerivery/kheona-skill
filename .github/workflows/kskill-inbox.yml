@@ -551,11 +551,12 @@ jobs:
           # helper below gives each owner its own token.
           persist-credentials: false
 
-      # gh and git pick the token of the owner a command names: this repository's, its parent's (a fork).
+      # gh and git pick the token of the owner a command names: this repository's, its parent's (a fork). --self: the
+      # broker's /token for each, since /tokens (every owner) is kept for the runner and the parents.
       - name: Mint a token per owner
         env:
           KSKILL_TOKEN_BROKER_URL: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
-        run: node "$KSKILL_HOME/.github/scripts/kskill-app-tokens.mjs" "$RUNNER_TEMP/kskill-app" --install
+        run: node "$KSKILL_HOME/.github/scripts/kskill-app-tokens.mjs" "$RUNNER_TEMP/kskill-app" --install --self
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
