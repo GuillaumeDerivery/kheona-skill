@@ -1,7 +1,7 @@
 # This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
 # not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # shellcheck shell=bash
-# / ci-cd.md "The publish lane": derives the store build number from the repository, never from a store
+# stacks/flutter.md K2: derives the store build number from the repository, never from a store
 # lookup (both stores' lookups lag what their upload endpoint enforces, and reading each store separately
 # lets iOS and Android drift apart). Both store lanes run it on the same commit, so both get one number.
 #   BUILD_NUMBER = git rev-list --count HEAD + KSKILL_BUILD_NUMBER_OFFSET   (offset: .kheona.json, default 0)

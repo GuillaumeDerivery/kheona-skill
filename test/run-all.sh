@@ -11,6 +11,6 @@ for t in test/test-*.sh; do
   tail -n 1 "${TMPDIR:-/tmp}/kskill-test.log"
 done
 echo "== token broker"; node --test terraform/token-broker/worker/test/*.test.mjs > "${TMPDIR:-/tmp}/kskill-node.log" 2>&1 || rc=1; grep -E '(pass|fail) [0-9]+$' "${TMPDIR:-/tmp}/kskill-node.log"
-echo "== shellcheck"; find .github/scripts scripts test -name '*.sh' -print0 | xargs -0 shellcheck -S warning || rc=1
+echo "== shellcheck"; { find .github/scripts scripts test -name '*.sh' -print0; printf 'enforce.sh\0'; } | xargs -0 shellcheck -S warning || rc=1
 if command -v actionlint >/dev/null; then echo "== actionlint"; actionlint -ignore 'specifying action "\$/' .github/workflows/*.yml || rc=1; fi
 exit "$rc"
