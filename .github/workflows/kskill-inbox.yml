@@ -144,7 +144,7 @@ jobs:
           fi
 
       # Each token stays in this runner's global git config, for its own URL: this repository's (the push) and the
-      # lib's (read-only). .gitmodules is never rewritten, so no tracked file can carry one (ci-cd.md trap 5).
+      # lib's (read-only). .gitmodules is never rewritten, so no tracked file can carry one.
       - name: Check out the submodules
         env:
           TOKEN: ${{ steps.shared.outputs.token }}

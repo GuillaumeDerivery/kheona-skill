@@ -17,3 +17,15 @@ Each shared workflow's header comment lists the keys it reads, their types and d
 | `workflows.local.<file>` | none | A workflow of the repository's own; the value is the reason |
 | `workflows.library.package` | none | The npm name of a library submodule, for the `.env` rule of its services |
 | `workflows.releasePlease.merge` | `person`; `gate` in a library | Who merges the release PR; `gate` and `daily` are for a library only |
+
+## The skill's hooks (`enforce.sh`)
+
+Read by `enforce.sh` only (SKILL.md, Enforcement); CI ignores them, `phase` excepted.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `blocking` | `false` | `true` denies `git commit` / `git push` on a finding; set it only once `gate` passes |
+| `coverage` | none | The line-coverage floor `full` enforces (Python: pytest-cov; Node: `c8 check-coverage` over the `coverage` script). Refused on Flutter |
+| `tiers.fast`, `tiers.gate`, `tiers.full` | `true` | `false` switches that tier off |
+| `designSystem.allow.<check>` | none | Globs of the files that define a primitive (`button`, `dropdown`, `dialog`, `color`, `shadow`, `element`, `inline-style`, `arbitrary`). No `designSystem` block: no design-system check |
+| `designSystem.invariants` | `[]` | Extra checks: `{"name", "pattern", "allow": [globs], "message"}` |

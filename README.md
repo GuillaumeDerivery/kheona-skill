@@ -91,6 +91,14 @@ Flutter delivery receives these through its caller, `kskill-deliver.yml`.
 
 `KSKILL_APP_PRIVATE_KEY` is a Cloudflare Worker secret, not a repository secret: the GitHub App's key in PKCS#8. A job proves who it is with its OIDC identity and receives a short-lived token, so no repository ever holds the key. See [terraform/token-broker/README.md](terraform/token-broker/README.md).
 
+## Use as a Claude Code skill
+
+The repository is also the `kheona` skill (`SKILL.md`, `stacks/`, the `enforce.sh` hooks):
+
+```bash
+git clone https://github.com/<owner>/kheona-skill ~/.claude/skills/kheona
+```
+
 ## Reference
 
 - [docs/kheona-json.md](docs/kheona-json.md): every `.kheona.json` key.
