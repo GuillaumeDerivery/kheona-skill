@@ -99,12 +99,14 @@ version, for a release), points every deployment and cron job at its digest, wai
 and reads the running image back. A repository deploying elsewhere sets `workflows.cd.target: "custom"` and keeps the
 shared release check and gate. A Dockerfile that only ever gets built on a laptop is a K2.7 FAIL however clean it is.
 
-**K2.9 — a TypeScript backend reports its commit on `GET /healthcheck`.** The image says which commit
+**K2.9 — a TypeScript backend reports its commit and its version on `GET /healthcheck`.** The image says which commit
 a *deployment* points at; the healthcheck says which commit the *process answering you* was built from,
-reachable with nothing but `curl`. Three pieces, all required:
+reachable with nothing but `curl`. The version comes from the deploy, never from the image: one image runs on
+staging (`1.4.0+3.a1b2c3d`, three commits after 1.4.0) and in production (`1.5.0`), with the same `commit`. Three
+pieces, all required:
 
 1. **The deploy passes the SHA as a build arg**: the shared deploy always passes `GIT_SHA`, then the
-   environment's `workflows.cd.<env>.buildArgs`.
+   environment's `workflows.cd.<env>.buildArgs`. It sets `APP_VERSION` on every deployment and cron job.
 2. **The Dockerfile's runtime stage exports it**, declared last so it does not bust the layer cache:
    ```dockerfile
    ARG GIT_SHA
@@ -118,11 +120,12 @@ reachable with nothing but `curl`. Three pieces, all required:
      const sha = process.env.GIT_SHA?.trim();
      return sha ? sha : null;
    };
+   export const runningVersion = (): string | null => process.env.APP_VERSION?.trim() || null;
    ```
    ```ts
    router.get('/healthcheck', (_req, res) => {
      res.status(200).send({
-       version:  pkg.version,        // never bumped -- the commit is the version
+       version:  runningVersion(),   // APP_VERSION, set by the deploy; null outside a cluster
        commit:   runningCommit(),    // null outside an image: the honest answer
        env:      process.env.NODE_ENV,
        uptime:   process.uptime(),
@@ -130,16 +133,17 @@ reachable with nothing but `curl`. Three pieces, all required:
      });
    });
    ```
-   The same `runningCommit()` is the error tracker's `release` (K8.4), so an event names the code that
-   raised it. `package.json` gets `"private": true` and a `version` nobody bumps.
+   `runningVersion()` is the error tracker's `release` (K8.4), `runningCommit()` its `dist`, so an event names
+   both. `package.json` gets `"private": true` and no `version` is read from it.
 
-A test sets `GIT_SHA` and asserts `commit` echoes it, and a second asserts `null` with it unset. The deploy itself
+A test sets `GIT_SHA` and `APP_VERSION` and asserts `commit` and `version` echo them, and a second asserts `null`
+with them unset. The deploy itself
 reads the running image back from the cluster.
 
 ```bash
 grep -n "GIT_SHA" Dockerfile                                  # the runtime stage exports it
 grep -rn "runningCommit\|GIT_SHA" src/                        # read in one place
-curl -fsS https://<host>/healthcheck | jq -r .commit           # equals the image tag's SHA
+curl -fsS https://<host>/healthcheck | jq -r .commit,.version  # the image tag's SHA; the deploy's APP_VERSION
 ```
 **Pass:** all three pieces present, and on a deployed pod `commit` equals the commit the deploy run
 reports for that image. A healthcheck with no `commit`, or one that

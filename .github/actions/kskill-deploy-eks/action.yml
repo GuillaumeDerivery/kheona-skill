@@ -5,7 +5,8 @@
 # cron job at the image's digest (a tag can be overwritten, a digest cannot), waits
 # for each deployment's rollout, reads the running image back from the cluster into the run summary and fails if it differs, then optionally calls
 # the service's health check and compares the commit it reports.
-# With image-digest (a rollback to an image ECR still holds), nothing is built: that digest is deployed.
+# With image-digest (a rollback, or the image staging tested), nothing is built: that digest is deployed, and tagged
+# with the version when one is given. APP_VERSION (app-version) is set on every deployment and cron job, never built in.
 # Called by kskill-deploy.yml only, after the gate; it never
 # decides which environment to deploy, never reads
 # .kheona.json and never pushes `latest`. Container name = deployment / cron job name (the existing convention).
@@ -62,6 +63,10 @@ inputs:
     default: ''
   version:
     description: When set (a release, vX.Y.Z), the image is also tagged with it, so an ECR lifecycle rule can keep it.
+    required: false
+    default: ''
+  app-version:
+    description: When set, APP_VERSION on every deployment and cron job (the version the service reports).
     required: false
     default: ''
 
@@ -239,7 +244,28 @@ runs:
         cache-from: type=gha,scope=${{ steps.cache.outputs.scope }}
         cache-to: type=gha,mode=max,scope=${{ steps.cache.outputs.scope }},ignore-error=true
 
-    # By digest: the image just pushed, or the rollback's.
+    # An image deployed as is (staging's, promoted to production) gets the version tag a build would have given it.
+    # Tagging the same digest again (a rollback) is a no-op.
+    - name: Tag the image with its version
+      if: inputs.image-digest != '' && inputs.version != ''
+      shell: bash
+      env:
+        REPOSITORY: ${{ inputs.ecr-repository }}
+        DIGEST: ${{ inputs.image-digest }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -uo pipefail
+        manifest=$(aws ecr batch-get-image --repository-name "$REPOSITORY" --image-ids "imageDigest=$DIGEST" --query 'images[0].imageManifest' --output text)
+        media=$(aws ecr batch-get-image --repository-name "$REPOSITORY" --image-ids "imageDigest=$DIGEST" --query 'images[0].imageManifestMediaType' --output text)
+        if err=$(aws ecr put-image --repository-name "$REPOSITORY" --image-tag "$VERSION" --image-manifest "$manifest" --image-manifest-media-type "$media" 2>&1 >/dev/null); then
+          echo "Tagged ${DIGEST} $VERSION."
+        elif grep -q ImageAlreadyExistsException <<<"$err"; then
+          echo "$VERSION already names ${DIGEST}."
+        else
+          echo "::warning::Could not tag ${DIGEST} $VERSION (an ECR lifecycle rule may not keep it): $err"
+        fi
+
+    # By digest: the image just pushed, or the one given.
     - name: Compute the image reference
       id: image
       shell: bash
@@ -251,8 +277,8 @@ runs:
         [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::No image digest to deploy ('$DIGEST')."; exit 1; }
         { echo "ref=${REGISTRY}/${REPOSITORY}@${DIGEST}"; echo "digest=$DIGEST"; } >> "$GITHUB_OUTPUT"
 
-    # When environment-variable is set, the deployment is paused so the env change and the new image roll out
-    # once. The variable is set on the deployment, not baked into the image: staging and prod share one image.
+    # The deployment is paused so the environment variables (APP_VERSION, and environment-variable when set) and the
+    # new image roll out once. They are set on the deployment, not baked into the image: staging and prod share one.
     - name: Point deployments and cron jobs at the image
       shell: bash
       env:
@@ -260,8 +286,12 @@ runs:
         TARGETS: ${{ inputs.targets }}
         ENV_VAR: ${{ inputs.environment-variable }}
         ENV_NAME: ${{ inputs.environment-name }}
+        APP_VERSION: ${{ inputs.app-version }}
       run: |
         set -euo pipefail
+        vars=()
+        [ -z "$APP_VERSION" ] || vars+=("APP_VERSION=$APP_VERSION")
+        [ -z "$ENV_VAR" ] || vars+=("${ENV_VAR}=${ENV_NAME}")
         # A deployment left paused stalls every later rollout, manual ones included: whatever fails between
         # pause and resume, resume it on the way out.
         paused=""
@@ -271,19 +301,20 @@ runs:
           ns=$(jq -r .namespace <<< "$target")
           for d in $(jq -r '.deployments[]' <<< "$target"); do
             echo "Setting deployments/$d in $ns to ${IMAGE#*@}"
-            if [ -n "$ENV_VAR" ]; then
+            if [ "${#vars[@]}" -gt 0 ]; then
               kubectl rollout pause "deployments/$d" --namespace "$ns"
               paused="$ns/$d"
-              kubectl set env "deployments/$d" "${ENV_VAR}=${ENV_NAME}" --namespace "$ns"
+              kubectl set env "deployments/$d" --containers="$d" "${vars[@]}" --namespace "$ns"
             fi
             kubectl set image "deployments/$d" "$d=$IMAGE" --namespace "$ns"
-            if [ -n "$ENV_VAR" ]; then
+            if [ "${#vars[@]}" -gt 0 ]; then
               kubectl rollout resume "deployments/$d" --namespace "$ns"
               paused=""
             fi
           done
           for c in $(jq -r '.cronjobs[]' <<< "$target"); do
             echo "Setting cronjobs/$c in $ns to ${IMAGE#*@}"
+            [ "${#vars[@]}" = 0 ] || kubectl set env "cronjobs/$c" --containers="$c" "${vars[@]}" --namespace "$ns"
             kubectl set image "cronjobs/$c" "$c=$IMAGE" --namespace "$ns"
           done
         done < <(jq -c '.[]' <<< "$TARGETS")
@@ -320,12 +351,13 @@ runs:
         IMAGE: ${{ steps.image.outputs.ref }}
         TARGETS: ${{ inputs.targets }}
         ENV_NAME: ${{ inputs.environment-name }}
+        APP_VERSION: ${{ inputs.app-version }}
       run: |
         set -uo pipefail
         {
           echo "## Deployed to ${ENV_NAME}"
           echo
-          echo "Commit \`${GITHUB_SHA}\`, image \`${IMAGE#*@}\`"
+          echo "Commit \`${GITHUB_SHA}\`, image \`${IMAGE#*@}\`${APP_VERSION:+, APP_VERSION \`$APP_VERSION\`}"
           echo
           echo "| Resource | Image the cluster runs now |"
           echo "|---|---|"

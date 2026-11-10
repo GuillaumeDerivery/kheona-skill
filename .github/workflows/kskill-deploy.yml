@@ -11,11 +11,16 @@
 #     App token, and that tag's push starts this file through the repository's caller, which pins this repository
 #     by its immutable version tag (the production role trusts only this file at a v2 tag: job_workflow_ref).
 #     The release check runs first: version tag, on main, a release PR merged by a person, staging passed on the
-#     commit before. Then the FULL gate (a tested tree is never reused on a tag), then the deploy.
+#     commit before. When the release commit changes nothing but versions (kskill-release-image.sh) and ECR holds the
+#     image staging built from the commit before, production runs that very image: no gate (Main passed on it), no
+#     build, only the version tag added in ECR. Otherwise the FULL gate, then a build.
 #   - a rollback is this workflow started by hand on an earlier tag (`gh workflow run kskill-deploy.yml --ref v1.3.0`):
 #     the check asks for a published release and a person with write access. The release's image digest (recorded
 #     in its notes by the deploy) is deployed as is when ECR still has it: no gate, no build. Otherwise it runs in full.
 #   - anything else (another branch, another tag, a pull request but as a dry run) deploys nothing.
+# The version is never built into the image: the deploy sets APP_VERSION on every deployment and cron job
+# (kskill-app-version.sh): X.Y.Z in production, <last release>+<commits since>.<short commit> on staging. The image
+# carries only its commit (GIT_SHA), so one image shows the same commit on both, and each environment's own version.
 # The image is deployed by digest, never by a tag (tags in a shared ECR repository can be overwritten); production
 # images are also tagged with their version, so an ECR lifecycle rule can keep them.
 # Where it deploys, `workflows.cd.target`: "eks" (the default: .github/actions/kskill-deploy-eks), or "custom": this
@@ -89,6 +94,9 @@ on:
       version:
         description: The version tag a production run deploys; empty on staging.
         value: ${{ jobs.plan.outputs.version }}
+      app-version:
+        description: The version the service reports (APP_VERSION), on both environments.
+        value: ${{ jobs.plan.outputs.app-version }}
 
 concurrency:
   group: kskill-deploy-${{ startsWith(github.ref, 'refs/tags/') && 'prod' || 'staging' }}
@@ -119,6 +127,8 @@ jobs:
       target: ${{ steps.read.outputs.target }}
       environment: ${{ steps.env.outputs.environment }}
       version: ${{ steps.env.outputs.version }}
+      tested: ${{ steps.env.outputs.tested }}
+      app-version: ${{ steps.app-version.outputs.app-version }}
       ecr-repository: ${{ steps.read.outputs.ecr-repository }}
       region: ${{ steps.read.outputs.region }}
       cluster: ${{ steps.read.outputs.cluster }}
@@ -145,6 +155,14 @@ jobs:
           ACTOR: ${{ github.triggering_actor }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: bash "$KSKILL_HOME/.github/scripts/kskill-release-check.sh"
+
+      - name: Name the version
+        id: app-version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.env.outputs.version }}
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-app-version.sh"
 
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -286,13 +304,15 @@ jobs:
           done
           exit "$bad"
 
-  # A rollback (a dispatch on a version tag): the image that release deployed, by the digest its notes record, when
-  # ECR still holds it. Its own job: it needs the AWS identity, which the plan job does not get.
+  # An image production may run without building, on a version tag. A rollback (a dispatch): the image that release
+  # deployed, by the digest its notes record. A release (a push): the image staging built from the commit before,
+  # when the release commit changes nothing but versions. Either only when ECR still holds it. Its own job: it needs
+  # the AWS identity, which the plan job does not get.
   image:
     name: Find the release's image
     needs: plan
     if: >-
-      github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/') && !inputs.dry_run
+      startsWith(github.ref, 'refs/tags/') && !inputs.dry_run
       && needs.plan.outputs.deploy == 'true' && needs.plan.outputs.target == 'eks'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -301,9 +321,14 @@ jobs:
       id-token: write
     outputs:
       digest: ${{ steps.find.outputs.digest }}
+      source: ${{ steps.find.outputs.source }}
     steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
       - name: Read the digest from the release
         id: notes
+        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -313,8 +338,17 @@ jobs:
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           [ -n "$digest" ] || echo "::notice::$TAG records no image digest: the rollback builds and tests it in full."
 
+      - name: Check the release commit changes only versions
+        id: promote
+        if: github.event_name != 'workflow_dispatch' && needs.plan.outputs.tested != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TESTED: ${{ needs.plan.outputs.tested }}
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-release-image.sh"
+
       - name: Configure AWS credentials
-        if: steps.notes.outputs.digest != ''
+        if: steps.notes.outputs.digest != '' || steps.promote.outputs.promote == 'true'
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ needs.plan.outputs.aws-role-arn }}
@@ -323,23 +357,36 @@ jobs:
           aws-region: ${{ needs.plan.outputs.region }}
 
       # The digest must be an image of this environment's repository: release notes can be edited by any writer.
+      # Staging's image is found by its commit tag in this environment's repository (one built with other build
+      # arguments lives in another repository: the plan job refuses a shared one), then deployed by digest.
       - name: Check ECR still holds it
         id: find
-        if: steps.notes.outputs.digest != ''
+        if: steps.notes.outputs.digest != '' || steps.promote.outputs.promote == 'true'
         env:
           DIGEST: ${{ steps.notes.outputs.digest }}
+          TESTED: ${{ needs.plan.outputs.tested }}
           REPOSITORY: ${{ needs.plan.outputs.ecr-repository }}
         run: |
-          if aws ecr describe-images --repository-name "$REPOSITORY" --image-ids "imageDigest=$DIGEST" > /dev/null 2>&1; then
-            echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
-            echo "Rollback to the release's own image ($DIGEST): no gate, no build." >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$DIGEST" ]; then
+            if aws ecr describe-images --repository-name "$REPOSITORY" --image-ids "imageDigest=$DIGEST" > /dev/null 2>&1; then
+              { echo "digest=$DIGEST"; echo "source=rollback"; } >> "$GITHUB_OUTPUT"
+              echo "Rollback to the release's own image ($DIGEST): no gate, no build." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::notice::ECR no longer holds $DIGEST: the rollback builds and tests it in full."
+            fi
+            exit 0
+          fi
+          found=$(aws ecr describe-images --repository-name "$REPOSITORY" --image-ids "imageTag=$TESTED" --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || true)
+          if [[ "$found" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            { echo "digest=$found"; echo "source=promote"; } >> "$GITHUB_OUTPUT"
+            echo "Production runs the image staging tested (${TESTED:0:7}, $found): no gate, no build." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::notice::ECR no longer holds $DIGEST: the rollback builds and tests it in full."
+            echo "::notice::$REPOSITORY holds no image of ${TESTED:0:7}: production builds and tests the release in full."
           fi
 
   # Nothing deploys from a commit that has not passed the gate: this one, or off a tag the caller's (`gate: false`,
-  # kskill-main.yml, whose deploy job `needs:` its own gate). A tag always runs it in full; a rollback to an image ECR
-  # still holds skips it (that image passed it when it was released).
+  # kskill-main.yml, whose deploy job `needs:` its own gate). A tag runs it in full, unless it deploys an image ECR
+  # holds: a rollback's (it passed when released) or staging's (Main passed on that commit: the release check).
   # toJSON, not `!= false`: GitHub compares loosely, and a missing input (null) equals false.
   ci:
     name: Run the gate
@@ -434,11 +481,12 @@ jobs:
           rollout-timeout: ${{ needs.plan.outputs.rollout-timeout }}
           image-digest: ${{ needs.image.outputs.digest }}
           version: ${{ needs.plan.outputs.version }}
+          app-version: ${{ needs.plan.outputs.app-version }}
 
       # The App token, contents write on this repository only: the job's own token only reads.
       - name: Mint the App token
         id: app
-        if: ${{ !inputs.dry_run && needs.plan.outputs.version != '' && needs.image.outputs.digest == '' }}
+        if: ${{ !inputs.dry_run && needs.plan.outputs.version != '' && needs.image.outputs.source != 'rollback' }}
         uses: $/.github/actions/kskill-token
         with:
           broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
