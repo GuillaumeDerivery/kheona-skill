@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "The Kheona policy for a role: infra repository (Terraform under terraform/, Kubernetes manifests under eks/<namespace>/): applying is manual (terraform apply, kubectl apply), so nothing merges automatically (renovate/no-automerge). Third-party images, Terraform providers and modules get the weekly minor/patch PR, majors the draft; the cert-manager and ingress-nginx release manifests a draft each, to be replaced by the release's file; the apps' own images, whose tags the deploy pipelines write, are never touched. End of support (the EKS version, the manifests, the AWS provider's major) is map rule MR-36 (doctor/support.mjs), not Renovate's.",
+  "description": "The Kheona policy for a role: infra repository (Terraform under terraform/, Kubernetes manifests under eks/<namespace>/): applying is manual (terraform apply, kubectl apply), so nothing merges automatically (renovate/no-automerge). Third-party images, Terraform providers and modules get the weekly minor/patch PR, majors the draft; the cert-manager and ingress-nginx release manifests a draft each, to be replaced by the release's file; the apps' own images, whose tags the deploy pipelines write, are never touched. End of support (the EKS version, the manifests, the AWS provider's major) is map rule kskill-rules.infra.support (doctor/support.mjs), not Renovate's.",
   "extends": [
     "github>GuillaumeDerivery/kheona-skill//renovate/no-automerge"
   ],
@@ -24,7 +24,7 @@
       "datasourceTemplate": "github-releases"
     },
     {
-      "description": "ingress-nginx is applied from its release manifest (eks/ingress-nginx/deploy.yaml): its version label follows the controller releases (tags controller-vX.Y.Z; the repository also tags helm-chart-*). Archived upstream since 2026-03: no new release is expected, MR-36 reports the retirement.",
+      "description": "ingress-nginx is applied from its release manifest (eks/ingress-nginx/deploy.yaml): its version label follows the controller releases (tags controller-vX.Y.Z; the repository also tags helm-chart-*). Archived upstream since 2026-03: no new release is expected, kskill-rules.infra.support reports the retirement.",
       "customType": "regex",
       "managerFilePatterns": [
         "/^eks/ingress-nginx/[^/]+\\.ya?ml$/"

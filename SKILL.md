@@ -21,20 +21,21 @@ stop and hand the check to the person watching the screen.
 - **Day one of a repository**: this is the setup contract. K1, K2.1, K3.1, K4 (in its bootstrap phase), and K3.3 when the
   repository renders a UI: the design system is the one item that cannot be retrofitted cheaply. Wire the shared
   workflows the same day ([docs/adoption.md](docs/adoption.md)).
-- **Before a release**: a full pass.
+- **Before a release**: a full pass (`report` to check without changing anything).
 - **Inheriting or resuming a repository** not touched recently.
 - **Triaging production errors** ("list the Sentry issues", "work on the crashes"): *Sentry triage* below, end to end.
 - **CI broke for no visible reason**: usually K1 (an unpinned toolchain moved) or K2.4 (an unpinned action moved).
 
 Not for reviewing one diff (`/code-review`) or debugging one failure.
 
-## Modes: pick one, state it up front
+## Modes: two, the default unless `report` is asked for
 
 | Mode | Behaviour |
 |---|---|
-| `AUDIT` | Report only. Change nothing. |
-| `FIX` | Audit, then land every mechanical, low-risk fix. Stop and ask on judgement calls. One commit per section. |
-| `ISSUES` | Audit, then open one GitHub issue per failing item (template below). Do not also fix. |
+| default | Audit, land every mechanical, low-risk fix (one commit per section), open one GitHub issue per FAIL left (template below), then report. Stop and ask on judgement calls. What the doctor does on every repository. |
+| `report` | Audit and report only: change nothing, file nothing. For a repository you do not own, or a check before a release. |
+
+State the mode up front. `/kheona` alone is the default; `/kheona report` is the other.
 
 Every item is **PASS**, **FAIL** or **UNVERIFIED** (only a person, a device or a console can settle it: say what
 would). In the K4 bootstrap phase the K4 items read **DEFERRED (bootstrap)**. Items are independent; one failure never
@@ -451,7 +452,7 @@ The reader is Claude in a fresh session, holding the repository and nothing else
 - **Parked:** title `[PARKED] …`, body opening `## Status: parked`, the blocker, the unblock condition as a checklist.
 - **Waiting:** label `waiting`, first body line `Waiting on: <issue, PR, person or event>`. Drop it when unblocked.
 
-### Issue template (`ISSUES` mode)
+### Issue template (default mode)
 
 One issue per failing item; the title names the fix, not the symptom.
 
@@ -473,7 +474,7 @@ One issue per failing item; the title names the fix, not the symptom.
 - [ ] <CLAUDE.md updated if this changes documented state>
 ```
 
-Reuse the repository's labels. Don't file what `FIX` mode would settle in minutes, or what an open issue covers.
+Reuse the repository's labels. Don't file what a mechanical fix settles in minutes (land the fix), or what an open issue covers.
 
 ### PR body template
 
@@ -531,7 +532,8 @@ session, read Sentry from the session through the Sentry MCP; never ask a person
 | `| head` on a dependency report | The `N upgradable dependencies are locked` line below the table is a finding. |
 | Editing a generated caller | The next `kskill-callers.mjs check` fails. Change `.kheona.json`, or this repository. |
 | Deploying production from `main` or a branch | Production comes from a version tag a person's release created (K2.8). |
-| Fixing in `ISSUES` mode, filing in `FIX` mode | The mode is the contract. |
+| Changing or filing anything in `report` mode | The mode is the contract: `report` only reports. |
+| Filing an issue for a mechanical fix | The default mode lands it; an issue is for what needs judgement. |
 | A PR naming its issue only mid-body | First line, or the link is found only by reading the diff. |
 | Auditing the source manifest | Dependencies inject permissions you never wrote (K5.3). |
 | Resolving a Sentry issue when the PR opens | Resolve on merge, as `resolvedInNextRelease`. |
