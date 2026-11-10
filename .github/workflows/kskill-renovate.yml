@@ -78,8 +78,9 @@ jobs:
           KSKILL_APP_TOKENS: ${{ runner.temp }}/kskill-app/tokens.json
           REPOSITORIES: ${{ inputs.repositories }}
           DRY_RUN: ${{ inputs.dry_run && 'full' || '' }}
+        # KSKILL_SHA: the running commit, the directory the runner downloaded this version into (_actions/owner/repo/<sha>).
         run: |
-          bash "$KSKILL_HOME/scripts/kskill-renovate-plan.sh" "$RUNNER_TEMP/renovate" | tee -a "$GITHUB_STEP_SUMMARY"
+          KSKILL_SHA=$(basename "$KSKILL_HOME") bash "$KSKILL_HOME/scripts/kskill-renovate-plan.sh" "$RUNNER_TEMP/renovate" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "owners=$(cat "$RUNNER_TEMP/renovate/owners.json")" >> "$GITHUB_OUTPUT"
           rm -rf "$RUNNER_TEMP/kskill-app"
 

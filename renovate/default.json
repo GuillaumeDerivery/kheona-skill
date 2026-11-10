@@ -208,12 +208,14 @@
       "enabled": false
     },
     {
-      "description": "kheona-skill itself: its callers (.github/workflows/kskill-*.yml, pinned by commit, the production ones by their immutable version tag) and its preset tag move together in ONE PR per release, at any time, never merged automatically: a person merges it (the callers' content can change with a version; the repository check says so in CI, and the setup command rewrites them). chore(ci): it changes the pipeline, not what the repository releases.",
+      "description": "kheona-skill itself: its callers (.github/workflows/kskill-*.yml, pinned by commit, the production ones by their immutable version tag) and its preset tag move together in ONE PR per release, at any time, never merged automatically: a person merges it (the callers' content can change with a version; the repository check says so in CI, and the setup command rewrites them). chore(ci): it changes the pipeline, not what the repository releases. The npm dependency on this repository (`\"kheona-skill\": \"github:owner/kheona-skill#vX.Y.Z\"`, the shared configs) joins that PR too: Renovate reads its current version from package.json's `version` (1.x), so every tag looks like a major, which without separateMajorMinor false would go to a renovate/major-kheona-skill draft of its own (the majors' draftPR undone here).",
       "matchDepNames": [
         "/(^|/)kheona-skill(/|$)/"
       ],
       "groupName": "kheona-skill",
       "groupSlug": "kheona-skill",
+      "separateMajorMinor": false,
+      "draftPR": false,
       "schedule": [
         "at any time"
       ],

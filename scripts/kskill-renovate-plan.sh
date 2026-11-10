@@ -15,7 +15,7 @@
 #   - the commits are the App's; DRY_RUN=full turns Renovate's dryRun on.
 # Usage: kskill-renovate-plan.sh <out-dir>
 # Env: KSKILL_APP_TOKENS (tokens.json of .github/scripts/kskill-app-tokens.mjs), REPOSITORIES (optional, space-separated),
-#      DRY_RUN (optional, "full"). Prints a summary in Markdown. No token is written to the files.
+#      DRY_RUN (optional, "full"), KSKILL_SHA (optional, the running commit: a warning when the latest release is ahead). Prints a summary in Markdown. No token is written to the files.
 set -euo pipefail
 OUT=${1:?usage: kskill-renovate-plan.sh <out-dir>}
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -25,6 +25,7 @@ BOT=${KSKILL_BOT:?KSKILL_BOT, the login of the App, is required}
 : "${KSKILL_APP_TOKENS:?KSKILL_APP_TOKENS (tokens.json of kskill-app-tokens.mjs) is required}"
 mkdir -p "$OUT"
 token_of() { jq -r --arg o "${1,,}" '.[$o] // empty' "$KSKILL_APP_TOKENS"; }
+api() { curl -fsS ${1:+-H "Authorization: Bearer $1"} "https://api.github.com/$2" 2>/dev/null; }
 raw() { curl -fsS -H "Authorization: Bearer $1" -H 'Accept: application/vnd.github.raw' "https://api.github.com/repos/$2/contents/$3"; }
 
 if [ -n "${REPOSITORIES:-}" ]; then
@@ -36,6 +37,19 @@ fi
 # The App's commits and its Dependency Dashboard: Renovate finds its own issues by this login, so it must be the App's.
 BOT_ID=$(curl -fsS "https://api.github.com/users/$(jq -rn --arg b "$BOT" '$b|@uri')" | jq -r .id)
 [ -n "$BOT_ID" ] && [ "$BOT_ID" != null ] || { echo "::error::No GitHub user $BOT" >&2; exit 1; }
+
+# This run writes its PRs with this version's plan, the callers' regeneration included: a caller pinned behind the
+# latest release opens that release's PRs without what the release changed here (v2.7.0's PRs, opened by v2.6.1's plan,
+# kept the callers of v2.6.x). KSKILL_SHA, the running commit, is compared with the latest release; behind it, a warning.
+behind=0; latest=''
+if [[ "${KSKILL_SHA:-}" =~ ^[0-9a-f]{40}$ ]] && [ -n "$SKILL_REPO" ]; then
+  skill_token=$(token_of "${SKILL_REPO%%/*}")
+  latest=$(api "$skill_token" "repos/$SKILL_REPO/releases/latest" | jq -r '.tag_name // empty' 2>/dev/null) || latest=''
+  if [ -n "$latest" ]; then
+    behind=$(api "$skill_token" "repos/$SKILL_REPO/compare/$KSKILL_SHA...$latest" | jq -r '.ahead_by // 0' 2>/dev/null) || behind=0
+    [[ "$behind" =~ ^[0-9]+$ ]] || behind=0
+  fi
+fi
 
 # The callers' regeneration: the script on one line, its comment lines dropped (see its header).
 regen_cmd="node --input-type=module -e '$(grep -v '^//' "$HERE/kskill-callers-regenerate.mjs" | sed 's/^ *//' | tr '\n' ' ' | sed 's/ *$//')'"
@@ -51,6 +65,11 @@ done
 
 echo '## Renovate plan'
 echo
+if [ "$behind" -gt 0 ]; then
+  echo "::warning::This run is $SKILL_REPO at ${KSKILL_SHA:0:7}, $behind commit(s) behind its latest release $latest: its PRs to $latest are written by this older plan (the callers' regeneration included). Move the caller of this workflow to $latest first." >&2
+  echo "**Behind:** this run is $SKILL_REPO at \`${KSKILL_SHA:0:7}\`, $behind commit(s) behind $latest; its PRs to $latest are written by this older plan. Move this workflow's caller to $latest first."
+  echo
+fi
 echo "lib's packages left to bump-lib in $(jq length <<<"$consumers") consumer(s): $(jq -r 'join(", ")' <<<"$consumers")"
 owners='[]'
 for owner in $(printf '%s\n' "${repos[@]}" | cut -d/ -f1 | sort -fu); do
