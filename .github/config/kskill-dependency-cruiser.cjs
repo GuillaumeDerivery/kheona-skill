@@ -2,7 +2,7 @@
 // not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // The shared dependency-cruiser rules (import graph), for every Node repository whose `importGraph` check is
 // on. The repository's own .dependency-cruiser.cjs extends it and adds its layering rules:
-//   module.exports = { extends: './.github/config/kskill-dependency-cruiser.cjs', forbidden: [ ...its rules ] };
+//   module.exports = { extends: './node_modules/kheona-skill/.github/config/kskill-dependency-cruiser.cjs', forbidden: [ ...its rules ] };
 // The graph is the one TypeScript emits (tsPreCompilationDeps: false): an import used only as a type is erased at
 // compile time and cannot deadlock module initialisation, so it is not an edge.
 module.exports = {

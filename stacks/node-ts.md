@@ -152,16 +152,24 @@ returns a hardcoded string, is a FAIL.
 ## K3 — Code health
 
 **The tools' shared configuration lives in this repository** (`.github/config/kskill-*`, exported by its
-`package.json` as `kheona-skill/prettier`, `/knip`, `/stryker`, `/dependency-cruiser`), and the repository's own file
-builds on it. The paths below assume the shared file is reachable at `./.github/config/`; adjust the import to how the
-repository pulls it in:
+`package.json` as `kheona-skill/prettier`, `/knip`, `/stryker`, `/dependency-cruiser`). A Node repository takes it as a
+git dependency at the version tag its callers use, nothing copied and no registry:
 
-| Check (`workflows.ci.skip` key) | Shared copy | The repository's own file |
+- `package.json`: `"devDependencies": { "kheona-skill": "github:owner/kheona-skill#vX.Y.Z" }`. Renovate's kheona-skill
+  group moves this tag with the callers and the preset, in the same PR; a format change comes with its reformat there.
+- `.npmrc`: `allow-git` for that source (npm 12 refuses git dependencies by default). `allow-git=root` when the
+  repository's own `package.json` is the only one naming it; `allow-git=all` when a `file:` dependency (lib as a
+  submodule) carries its own reference, which `root` refuses (`EALLOWGIT`).
+- The repository's own file is one line that re-exports the shared one, and overrides only what it must.
+
+The shared Prettier options: single quotes, `printWidth: 200`, double quotes in YAML.
+
+| Check (`workflows.ci.skip` key) | Shared config | The repository's own file |
 |---|---|---|
-| format | `kskill-prettier.mjs` | `prettier.config.mjs`: `import base from './.github/config/kskill-prettier.mjs'; export default { ...base };`; `.prettierignore` lists the kskill copies (`.github/{workflows,scripts,config}/kskill-*`, `.github/actions/kskill-*/`) |
-| deadCode | `kskill-knip.mjs` | `knip.config.mjs`: `{ ...base, entry, project }`; script `knip --config knip.config.mjs` |
-| importGraph | `kskill-dependency-cruiser.cjs` | `.dependency-cruiser.cjs`: `{ extends: './.github/config/kskill-dependency-cruiser.cjs', forbidden: [its layering rules] }` |
-| mutation (the inbox's mutation job, `workflows.mutation`) | `kskill-stryker.mjs` | `stryker.config.mjs`: `{ ...base, commandRunner, mutate, … }`; script `stryker run stryker.config.mjs` |
+| format | `kheona-skill/prettier` | `prettier.config.mjs`: `import base from 'kheona-skill/prettier'; export default { ...base };`; no `.prettierrc` or `prettier` key beside it; `.prettierignore` lists `*.md` and the callers (`.github/workflows/kskill-*.yml`) |
+| deadCode | `kheona-skill/knip` | `knip.config.mjs`: `{ ...base, entry, project }`; script `knip --config knip.config.mjs` |
+| importGraph | `kheona-skill/dependency-cruiser` | `.dependency-cruiser.cjs`: `{ extends: './node_modules/kheona-skill/.github/config/kskill-dependency-cruiser.cjs', forbidden: [its layering rules] }` |
+| mutation (the inbox's mutation job, `workflows.mutation`) | `kheona-skill/stryker` | `stryker.config.mjs`: `{ ...base, commandRunner, mutate, … }`; script `stryker run stryker.config.mjs` |
 
 An override in the repository's own file says why in a comment.
 
@@ -169,6 +177,8 @@ An override in the repository's own file says why in a comment.
 npx tsc --noEmit                                   # K3.2, must be clean
 npx eslint . --max-warnings=0                      # K3.1
 npx prettier --check .
+grep -n '"kheona-skill"' package.json            # K3: the shared configs at the callers' tag (github:owner/kheona-skill#vX.Y.Z)
+grep -n 'allow-git' .npmrc                         # npm 12 refuses git dependencies without it
 grep -rn "@ts-ignore\|@ts-expect-error\|eslint-disable" src/ | grep -v "// why:"   # K3.2 suppressions
 grep -rn "any" src/ --include="*.ts" | grep -vE "^\s*//" | head -30
 npx knip                                            # K3.7 unused deps, files and exports (replaces depcheck + ts-prune)

@@ -52,7 +52,8 @@ The steps, by hand:
 
 4. **`renovate.json`:** `{"extends": ["github>owner/kheona-skill//renovate/default#v2.0.0"]}`: the generator pins the preset at the callers' version.
 5. **Variables and secrets:** `KSKILL_TOKEN_BROKER_URL` (your broker) and `KSKILL_BOT` (your App's `<app-slug>[bot]`) are required; neither has a default. `KSKILL_BOT=<app-slug>[bot] scripts/kskill-repo-settings.sh owner/repo --apply` writes it with the other settings. The rest: see [secrets.md](secrets.md) and the [README](../README.md#secrets). Callers pass secrets by name; `secrets: inherit` does not cross owners. The App key is never one of them.
-6. **Topic:** add `kheona-skill` or `kskill`. A library's consumers add the topic the library's `.kheona.json` names.
-7. **Prove it:** open a test PR. It must pass CI and review, and merge.
+6. **Shared configs (Node):** `"kheona-skill": "github:owner/kheona-skill#v2.0.0"` in `devDependencies`, `allow-git` in `.npmrc` and a one-line `prettier.config.mjs` re-exporting `kheona-skill/prettier` (single quotes, `printWidth: 200`). See [stacks/node-ts.md](../stacks/node-ts.md) K3.
+7. **Topic:** add `kheona-skill` or `kskill`. A library's consumers add the topic the library's `.kheona.json` names.
+8. **Prove it:** open a test PR. It must pass CI and review, and merge.
 
 `node scripts/kskill-callers.mjs check --repo .` says when a caller is missing or differs from what its version expects. Renovate opens one PR per release of this repository, moving every caller and the preset pin; when a version changes a caller's content, CI says so and `scripts/kskill-setup.sh --apply` (or `kskill-callers.mjs write`) rewrites it.
