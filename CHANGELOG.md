@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.3.2](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.3.1...v2.3.2) (2026-11-10)
+
+
+### Bug Fixes
+
+* the guard reads no account id inside a commit SHA ([#39](https://github.com/GuillaumeDerivery/kheona-skill/issues/39)) ([9e91c19](https://github.com/GuillaumeDerivery/kheona-skill/commit/9e91c1999827acbfd0c902ac1b30e9b814a88d19))
+* the token broker's health endpoint is /healthcheck ([#37](https://github.com/GuillaumeDerivery/kheona-skill/issues/37)) ([6a52a65](https://github.com/GuillaumeDerivery/kheona-skill/commit/6a52a65840a15147e4d7e869390658716c10435f))
+
 ## [2.3.1](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.3.0...v2.3.1) (2026-11-10)
 
 
