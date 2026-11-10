@@ -254,7 +254,7 @@ current version, with nothing hand-edited: `node scripts/kskill-callers.mjs chec
   (`kskill-callers.mjs stack`), so no caller names a stack. A version bump is one Renovate PR moving every caller and
   the preset pin; its post-upgrade step writes the callers again with that version's generator
   (`scripts/kskill-callers-regenerate.mjs`), so a caller whose content changes is right in the same PR. Where the
-  step did not run (a Renovate run from an older version), CI says so and `write` regenerates the callers on that branch. `enforce.sh fast` flags an edit to a caller the moment it is written.
+  step did not run (a Renovate run from an older version: its plan warns), CI says so and `write` regenerates the callers on that branch. `enforce.sh fast` flags an edit to a caller the moment it is written.
   **Pass:** `kskill-callers.mjs check` and the repository check are green on `main`.
 - **K2.11 Repository settings are declared once and applied by one script.** `config/repo-settings.json` lists each
   setting with its reason (squash merges, head branches deleted, no wiki, Actions on, the workflow token read-only,

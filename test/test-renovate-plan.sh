@@ -63,5 +63,25 @@ node "$HERE/scripts/kskill-callers.mjs" check --repo "$R" --self owner/kheona-sk
 PATH="$T/bin:$PATH" KSKILL_LIB_REPO=owner/lib KSKILL_APP_TOKENS="$T/tokens.json" REPOSITORIES=owner/repo \
   bash "$HERE/scripts/kskill-renovate-plan.sh" "$T/out2" >/dev/null 2>&1; rc=$?
 check "KSKILL_BOT required" "$([ $rc -ne 0 ] && echo refused)" refused
+# A run behind the latest release says so (v2.7.0's PRs were opened by a caller still on v2.6.1, whose plan has no
+# regeneration): KSKILL_SHA is compared with the latest release; the stub says it is 3 commits ahead, then 0.
+for ahead in 3 0; do
+  cat > "$T/bin/curl" <<STUB
+#!/usr/bin/env bash
+for a in "\$@"; do u=\$a; done
+case "\$u" in
+  */users/example-app%5Bbot%5D) echo '{"id": 4242}' ;;
+  */repos/owner/kheona-skill/releases/latest) echo '{"tag_name": "v9.9.9"}' ;;
+  */repos/owner/kheona-skill/compare/0123456789abcdef0123456789abcdef01234567...v9.9.9) echo '{"ahead_by": $ahead}' ;;
+  */contents/package.json) echo '{"dependencies": {"left-pad": "1.0.0"}}' ;;
+  *) exit 22 ;;
+esac
+STUB
+  lag=$(PATH="$T/bin:$PATH" KSKILL_REPO=owner/kheona-skill KSKILL_SHA=0123456789abcdef0123456789abcdef01234567 KSKILL_BOT='example-app[bot]' \
+    KSKILL_LIB_REPO=owner/lib KSKILL_APP_TOKENS="$T/tokens.json" REPOSITORIES=owner/repo bash "$HERE/scripts/kskill-renovate-plan.sh" "$T/out-$ahead" 2>&1); rc=$?
+  check "behind the latest release by $ahead: exits 0" "$rc" 0
+  check "... a warning naming it: $([ "$ahead" -gt 0 ] && echo yes || echo no)" "$(grep -c '^::warning::.*3 commit(s) behind its latest release v9.9.9' <<<"$lag")" "$([ "$ahead" -gt 0 ] && echo 1 || echo 0)"
+done
+check "no KSKILL_SHA (or no release reachable): no warning, still planned" "$(grep -c '::warning::' <<<"$out"):$(jq -c .repositories "$T/out/renovate-owner.json" 2>/dev/null)" '0:["owner/repo"]'
 [ $failn -eq 0 ] || echo "$out"
 echo "$pass passed, $failn failed"; [ $failn -eq 0 ]
