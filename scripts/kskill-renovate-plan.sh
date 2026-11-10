@@ -58,7 +58,7 @@ for owner in $(printf '%s\n' "${repos[@]}" | cut -d/ -f1 | sort -fu); do
     requireConfig: "required",
     repositories: $repos,
     cloneSubmodules: true,
-    npmrc: "allow-git=root\n",
+    npmrc: "allow-git=all\n",
     npmrcMerge: true,
     packageRules: (if ($consumers | length) == 0 then [] else [{
       description: "lib rule 1: a lib consumer keeps every package lib names at lib'"'"'s exact version; the inbox job bump-lib moves them.",

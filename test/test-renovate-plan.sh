@@ -28,7 +28,7 @@ check "exits 0" "$rc" 0
 check "owners" "$(cat "$T/out/owners.json" 2>/dev/null)" '["other","owner"]'
 check "username" "$(jq -r .username "$T/out/renovate-owner.json" 2>/dev/null)" 'example-app[bot]'
 check "gitAuthor" "$(jq -r .gitAuthor "$T/out/renovate-owner.json" 2>/dev/null)" 'example-app[bot] <4242+example-app[bot]@users.noreply.github.com>'
-check "npm may fetch a direct git dependency (the shared configs), nothing deeper" "$(jq -c "[.npmrc, .npmrcMerge]" "$T/out/renovate-owner.json" 2>/dev/null)" '["allow-git=root\n",true]'
+check "npm may fetch git dependencies (the shared configs, and lib's own reference to them)" "$(jq -c "[.npmrc, .npmrcMerge]" "$T/out/renovate-owner.json" 2>/dev/null)" '["allow-git=all\n",true]'
 check "repositories" "$(jq -c .repositories "$T/out/renovate-owner.json" 2>/dev/null)" '["owner/repo"]'
 check "dry run" "$(jq -r .dryRun "$T/out/renovate-owner.json" 2>/dev/null)" full
 PATH="$T/bin:$PATH" KSKILL_LIB_REPO=owner/lib KSKILL_APP_TOKENS="$T/tokens.json" REPOSITORIES=owner/repo \
