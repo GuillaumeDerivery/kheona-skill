@@ -61,7 +61,7 @@ check "... macOS's openssl is LibreSSL" "$out" '/usr/bin/openssl is LibreSSL and
 check "... Homebrew's OpenSSL, -legacy for RC2" "$out" 'openssl@3\)/bin/openssl" pkcs12 -in cert\.p12 -noout -info, adding -legacy'
 
 check "... keytool from Android Studio" "$out" 'Android Studio\.app/Contents/jbr/Contents/Home/bin/keytool'
-check "... the signing secrets under the names this version's workflow reads" "$out" 'todo  secret CM_KEY_ALIAS'
+check "... the signing secrets under the names this version's workflow reads" "$out" 'todo  secret ANDROID_KEY_ALIAS'
 check "... no secret set, no value read" "$(grep -c 'secret set' "$T/log")" '^0$'
 check "... the script never reads a value" "$(grep -cE 'read -[a-z]*s' "$S")" '^0$'
 check "... the PR left to a person when it cannot push" "$out" 'todo  the PR'
@@ -71,13 +71,13 @@ check "a workflow reading ANDROID_*: those names asked" "$out" 'todo  secret AND
 
 # A person at the keyboard: the App confirmed (remembered), one secret set while it waits, one skipped, then q.
 echo 'ANDROID_KEYSTORE_BASE64 PLAY_STORE_JSON_KEY_BASE64 IOS_DIST_CERTIFICATE_P12_BASE64 IOS_DIST_CERTIFICATE_PASSWORD ASC_KEY_ID ASC_ISSUER_ID' > "$FAKE/secrets"
-echo 'CM_KEYSTORE_PASSWORD' > "$FAKE/later"; rm -f "$FAKE/n"
+echo 'ANDROID_KEYSTORE_PASSWORD' > "$FAKE/later"; rm -f "$FAKE/n"
 out=$(printf 'y\n\ns\nq\n' | KSKILL_SETUP_TTY=1 run --apply); rc=$?
 check "interactive: the App confirmed and remembered" "$out" 'done  App app-bot installed \(confirmed'
 check "... in the clone's .git, not in a file git tracks" "$(cat "$R/.git/kskill-setup.state")" '^app-installed o/app app-bot$'
-check "... the secret set while it waited: done" "$out" 'done  secret CM_KEYSTORE_PASSWORD'
-check "... the skipped one: todo" "$out" 'todo  secret CM_KEY_ALIAS: skipped'
-check "... q stops: the rest left for the next run" "$out" 'todo  secret CM_KEY_PASSWORD: not set yet \(run this again to continue\)'$'\n''todo  secret ASC_API_KEY_BASE64: not set yet'
+check "... the secret set while it waited: done" "$out" 'done  secret ANDROID_KEYSTORE_PASSWORD'
+check "... the skipped one: todo" "$out" 'todo  secret ANDROID_KEY_ALIAS: skipped'
+check "... q stops: the rest left for the next run" "$out" 'todo  secret ANDROID_KEY_PASSWORD: not set yet \(run this again to continue\)'$'\n''todo  secret ASC_API_KEY_BASE64: not set yet'
 check "... exit 1" "$rc" '^1$'
 check "... still no secret set by the script" "$(grep -c 'secret set' "$T/log")" '^0$'
 
