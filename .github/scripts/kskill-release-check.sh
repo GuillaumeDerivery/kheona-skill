@@ -19,7 +19,8 @@
 #   4. a push outside a fork: Kheona Skill · Main passed on the commit before the release (its staging deploy included): the release
 #      commit only changes the version and the CHANGELOG, and never ran on staging itself. While that run is still going
 #      (the release PR merged right after another merge), it waits for it: KSKILL_MAIN_WAIT_SECONDS, default 2700.
-# Writes environment=staging|prod and, for prod, version=<tag> to $GITHUB_OUTPUT.
+# Writes environment=staging|prod and, for prod, version=<tag> to $GITHUB_OUTPUT; for a release (4), tested=<the commit
+# before>, whose staging image production may reuse (kskill-release-image.sh).
 # Env: GH_TOKEN (contents, pull-requests and actions read), GH_REPO, EVENT_NAME, GITHUB_REF, GITHUB_SHA,
 # DEFAULT_BRANCH, ACTOR (github.triggering_actor), DRY_RUN. Never writes to GitHub.
 set -uo pipefail
@@ -91,6 +92,7 @@ if [ "$EVENT_NAME" = push ] && [ "$fork" != true ]; then
     sleep "$every"; waited=$((waited + every))
   done
   echo "Release $tag: PR #$pr merged by $merger; staging passed on ${parent:0:7} ($passed)." | tee -a "$summary"
+  echo "tested=$parent" >> "$out"
 else
   # 3, a rollback, the same release again, or a fork's release
   draft=$(api "repos/$GH_REPO/releases/tags/$tag" --jq .draft)

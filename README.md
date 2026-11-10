@@ -32,7 +32,7 @@ node scripts/kskill-callers.mjs write --repo ../my-repo --self owner/kheona-skil
 | A merge to `main` | `kskill-main.yml` | CI, then **staging** (a service; an app has none). |
 | A merge to `main` | `kskill-release-please.yml` | release-please opens or updates the release PR: version and CHANGELOG, with a "Check before you merge" list. |
 | **A person merges the release PR** | `kskill-release-please.yml` | The version tag `vX.Y.Z` and the GitHub release, made with the App token. |
-| The tag is pushed | `kskill-deploy.yml` or `kskill-deliver.yml` | The release check, the full gate, then **production** (TestFlight and Play for an app). |
+| The tag is pushed | `kskill-deploy.yml` or `kskill-deliver.yml` | The release check, then **production**: a service runs the image staging tested (the release commit changes only versions; `APP_VERSION` is set at deploy), else the full gate and a build. An app is built (TestFlight and Play). |
 | Started by hand on an earlier tag | the same | A rollback: the release's own image when ECR still holds it. An app fixes forward. |
 | **In a fork, a person publishes a release** (the parent's version, on `main`) | the same | The release check, the full gate, then **production**. Release-please never runs in a fork. |
 | Started by hand on `main` (an app) | `kskill-deliver.yml` | A test build, no version. |

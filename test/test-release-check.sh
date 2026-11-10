@@ -63,6 +63,7 @@ out=$(run pull_request refs/pull/1/merge);      check "a PR without dry run: ref
 out=$(DRY_RUN=true run pull_request refs/pull/1/merge); check "a PR dry run: staging"             "$out" '^environment=staging$'
 out=$(run push refs/tags/v1.10.0);              check "a person's release: prod"                   "$out" '^environment=prod$'
 check "... with its version"                                                                        "$out" '^version=v1.10.0$'
+check "... and the commit staging tested"                                                           "$out" '^tested=b{40}$'
 out=$(run push refs/tags/v1.10.0-rc1);          check "not vX.Y.Z: refused"                        "$out" 'is not a version'
 out=$(run push refs/tags/release);              check "any other tag: refused"                     "$out" '^rc=1$'
 put compare.json '{"status":"diverged"}'
@@ -94,6 +95,7 @@ good; rm "$FAKE/runs.json"
 out=$(run push refs/tags/v1.10.0);              check "an API error: refused"                      "$out" 'does not deploy when unsure'
 good
 out=$(run workflow_dispatch refs/tags/v1.9.0 ann); check "a person's rollback: prod"               "$out" '^version=v1.9.0$'
+check "... no tested commit (nothing to promote)"                                                   "$(grep -c '^tested=' <<<"$out")" '^0$'
 out=$(run workflow_dispatch refs/tags/v1.9.0 bob); check "a reader's rollback: refused"            "$out" "has 'read' access"
 out=$(run workflow_dispatch refs/tags/v1.9.0 'x[bot]'); check "a bot's rollback: refused"          "$out" 'is not a person'
 put release.json '{"draft":true}'
