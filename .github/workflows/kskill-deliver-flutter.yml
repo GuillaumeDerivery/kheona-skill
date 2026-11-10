@@ -24,8 +24,9 @@
 # What is app-specific and stays in the repository, behind a stable hook: `android/fastlane/Fastfile` and
 # `ios/fastlane/Fastfile` (+ Appfiles) own bundle/package ids, team id, Play track, ABIs, signing settings and
 # the .ipa name. The workflow runs `cd android && fastlane <android.lane>` and `cd ios && fastlane <ios.lane>`
-# with BUILD_NUMBER, BUILD_NAME (optional for the lane: `--build-name`), CM_KEYSTORE_PATH, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD,
-# PLAY_STORE_JSON_KEY_PATH, ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_FILEPATH, SENTRY_ENVIRONMENT in the environment (the
+# with BUILD_NUMBER, BUILD_NAME (optional for the lane: `--build-name`), ANDROID_KEYSTORE_PATH, ANDROID_KEYSTORE_PASSWORD,
+# ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD (also exported under their old CM_* names, a Codemagic leftover, until the
+# apps read only the new ones), PLAY_STORE_JSON_KEY_PATH, ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_FILEPATH, SENTRY_ENVIRONMENT in the environment (the
 # lane compiles it in with --dart-define=SENTRY_ENVIRONMENT=..., read by lib/core/config/app_config.dart, ).
 # The Android lane must
 # leave one .aab under build/app/outputs/bundle/, the iOS lane one .ipa under ios/build/.
@@ -48,8 +49,9 @@
 #   sentry.project      string  -       Sentry project slug (required when sentry.enabled).
 #   sentry.appId        string  -       release prefix the app reports, `<appId>@<version>+<build>` (required when enabled).
 #   sentry.url          string  ""      Sentry base URL (e.g. https://de.sentry.io); "" = the CLI default.
-# Secrets: KSKILL_TOKEN_BROKER_URL (passed to the gate), ANDROID_KEYSTORE_BASE64, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD,
-# PLAY_STORE_JSON_KEY_BASE64, IOS_DIST_CERTIFICATE_P12_BASE64, IOS_DIST_CERTIFICATE_PASSWORD, ASC_KEY_ID,
+# Secrets: KSKILL_TOKEN_BROKER_URL (passed to the gate), ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+# ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD (deprecated fallback while a repository still holds the old names:
+# CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD; a new name wins, an old one alone warns), PLAY_STORE_JSON_KEY_BASE64, IOS_DIST_CERTIFICATE_P12_BASE64, IOS_DIST_CERTIFICATE_PASSWORD, ASC_KEY_ID,
 # ASC_ISSUER_ID, ASC_API_KEY_BASE64, SENTRY_AUTH_TOKEN (optional: missing = a warning, symbols not uploaded).
 name: Kheona Skill · Deliver
 
@@ -67,12 +69,19 @@ on:
     secrets:
       ANDROID_KEYSTORE_BASE64:
         required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_KEY_PASSWORD:
+        required: false
       ASC_API_KEY_BASE64:
         required: false
       ASC_ISSUER_ID:
         required: false
       ASC_KEY_ID:
         required: false
+      # Deprecated: the ANDROID_* names above win; these go once every repository holds the new ones.
       CM_KEYSTORE_PASSWORD:
         required: false
       CM_KEY_ALIAS:
@@ -264,6 +273,9 @@ jobs:
       - name: Check the signing secrets
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           CM_KEYSTORE_PASSWORD: ${{ secrets.CM_KEYSTORE_PASSWORD }}
           CM_KEY_ALIAS: ${{ secrets.CM_KEY_ALIAS }}
           CM_KEY_PASSWORD: ${{ secrets.CM_KEY_PASSWORD }}
@@ -271,8 +283,13 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           missing=()
-          for name in ANDROID_KEYSTORE_BASE64 CM_KEYSTORE_PASSWORD CM_KEY_ALIAS CM_KEY_PASSWORD PLAY_STORE_JSON_KEY_BASE64; do
-            [ -n "${!name}" ] || missing+=("$name")
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD PLAY_STORE_JSON_KEY_BASE64; do
+            old="CM_${name#ANDROID_}"
+            if [ -z "${!name}" ] && [ "$name" != ANDROID_KEYSTORE_BASE64 ] && [ -n "${!old}" ]; then
+              echo "::warning::$old is deprecated (a Codemagic leftover): set $name to the same value, then delete $old. gh secret set $name --repo $REPO"
+            elif [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
           done
           if [ ${#missing[@]} -gt 0 ]; then
             echo "::error::Missing repository secret(s): ${missing[*]}. Set them with: gh secret set <NAME> --repo $REPO"
@@ -380,6 +397,7 @@ jobs:
           KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
           echo -n "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
           [ -s "$KEYSTORE_PATH" ] || { echo "::error::ANDROID_KEYSTORE_BASE64 decoded to an empty keystore."; exit 1; }
+          echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
           echo "CM_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
 
       - name: Decode the Play Console key
@@ -399,11 +417,15 @@ jobs:
           free -h || true
           df -h /
 
+      # Both names reach the lane, the new secret winning, so an app reading either keeps signing during the rename.
       - name: Build and upload to Google Play
         env:
-          CM_KEYSTORE_PASSWORD: ${{ secrets.CM_KEYSTORE_PASSWORD }}
-          CM_KEY_ALIAS: ${{ secrets.CM_KEY_ALIAS }}
-          CM_KEY_PASSWORD: ${{ secrets.CM_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || secrets.CM_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || secrets.CM_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.CM_KEY_PASSWORD }}
+          CM_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || secrets.CM_KEYSTORE_PASSWORD }}
+          CM_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || secrets.CM_KEY_ALIAS }}
+          CM_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.CM_KEY_PASSWORD }}
           SENTRY_ENVIRONMENT: ${{ needs.config.outputs.android_environment }}
           LANE: ${{ needs.config.outputs.android_lane }}
         run: cd android && fastlane "$LANE"
