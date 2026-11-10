@@ -41,7 +41,8 @@ function scan(where, text) {
     const l = (selfLower ? line.toLowerCase().replaceAll(selfLower, '') : line.toLowerCase());
     const n = terms.filter((t) => l.includes(t)).length;
     if (n) hits.push(`${where}:${i + 1}: ${n} forbidden term(s)`);
-    else if (accountId.test(l)) hits.push(`${where}:${i + 1}: an account id`);
+    // A commit SHA (hex with a letter in it) can hold twelve digits in a row: it is not an account id.
+    else if (accountId.test(l.replace(/(?<![0-9a-z])[0-9a-f]{7,64}(?![0-9a-z])/g, (h) => (/[a-f]/.test(h) ? '' : h)))) hits.push(`${where}:${i + 1}: an account id`);
   });
 }
 const git = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8', maxBuffer: 1 << 28 });

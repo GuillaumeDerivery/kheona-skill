@@ -34,6 +34,12 @@ check "an account id" "$rc $out" '^1 a\.txt:1: an account id'
 printf 'id 111122223333\n' > "$R/a.txt"; git -C "$R" add -A
 out=$(KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" 2>&1); rc=$?
 check "... the placeholder passes" "$rc" '^0$'
+printf 'commit 6a52a65840a15147e4d7e869390658716c10435f\n' > "$R/a.txt"; git -C "$R" add -A
+out=$(KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" 2>&1); rc=$?
+check "... a commit SHA holding twelve digits passes" "$rc" '^0$'
+printf 'see 123456789012xyz\n' > "$R/a.txt"; git -C "$R" add -A
+out=$(KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" 2>&1); rc=$?
+check "... twelve digits glued to non-hex letters still count" "$rc" '^1$'
 printf 'Terms: SecretCorp\n' > "$T/pr"
 out=$(KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" --no-files --text-file "$T/pr" 2>&1); rc=$?
 check "the text of a PR" "$rc" '^1$'
