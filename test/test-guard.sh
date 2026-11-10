@@ -27,7 +27,7 @@ out=$(KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" --self SecretCorp/kheona-s
 check "--self: the repository may name itself" "$rc" '^0$'
 printf 'secretcorp/other\n' > "$R/a.txt"; git -C "$R" add -A
 out=$(KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" --self SecretCorp/kheona-skill 2>&1); rc=$?
-check "... its owner alone stays forbidden" "$rc" '^1$'
+check "... a listed term inside it stays forbidden elsewhere" "$rc" '^1$'
 printf 'id 1234567%s\n' 89012 > "$R/a.txt"; git -C "$R" add -A
 out=$(KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" 2>&1); rc=$?
 check "an account id" "$rc $out" '^1 a\.txt:1: an account id'

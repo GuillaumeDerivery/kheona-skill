@@ -7,7 +7,7 @@
 // Usage: node kskill-guard.mjs [--repo DIR] [--self owner/name] [--commits RANGE] [--text-file FILE]... [--no-files]
 // Env:   KSKILL_GUARD_LIST, the path of the list: one term a line, case-insensitive, # comments and blank lines ignored.
 //        Or KSKILL_GUARD_TERMS, the same text (a secret).
-// --self: that exact string is removed before searching, so the repository may name itself; its owner alone stays forbidden.
+// --self: that exact string is removed before searching, so the repository may name itself; a listed term inside it stays forbidden elsewhere.
 // Authorized authors, whose identity (name and email) is not scanned, their commit messages still are: the owner's own
 // GitHub identity (GitHub writes it on a merge), and the repository's own App, named after it: `<name>[bot]` with its
 // noreply address `<id>+<name>[bot]@users.noreply.github.com` (release-please commits as the App). Their

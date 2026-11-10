@@ -5,7 +5,7 @@
 
 ## First rule: this repository references nothing outside itself
 
-No other repository, organization, account, Sentry project, host, domain, cluster, bucket, account id or person, in code, comments, tests, fixtures, docs, commit messages, issues or PRs. It may name itself, `<owner>/kheona-skill`, in badges and examples. Tests use `owner/repo`, `example-cluster`, `111122223333`.
+No other repository, organization, account, Sentry project, host, domain, cluster, bucket, account id, in code, comments, tests, fixtures, docs, commit messages, issues or PRs. It may name itself, `<owner>/kheona-skill`, in badges and examples. Tests use `owner/repo`, `example-cluster`, `111122223333`. People's names (the owner, contributors) are fine.
 
 Whatever a workflow needs about the outside world comes from the calling repository: `.kheona.json`, Actions variables, secrets passed by name. Never a default here. The guard (`.github/scripts/kskill-guard.mjs`) enforces it; its list is private and never enters this repository.
 
@@ -18,6 +18,7 @@ Every owner brings its own GitHub App and token broker; this repository never na
 ## Working here
 
 - `bash test/run-all.sh` runs every test. CI runs the same.
+- Install the local guard once per clone: `bash scripts/kskill-guard-hook.sh install <list file>` (git hooks, and the Claude Code hook's configuration).
 - Workflows reach their own actions with `$/.github/actions/x`, and their files through `KSKILL_HOME` (`.github/actions/kskill-home`): the job's working directory is the caller's checkout.
 - A new secret or input goes through `.github/callers.json`, regenerated with it, so caller files stay exact.
 - Third-party actions are pinned by SHA.
