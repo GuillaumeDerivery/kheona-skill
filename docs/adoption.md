@@ -22,10 +22,29 @@ KSKILL_BOT='<app-slug>[bot]' KSKILL_TOKEN_BROKER_URL=https://<your-broker> \
   bash scripts/kskill-setup.sh --apply owner/repo ../repo    # does what is missing
 ```
 
-It goes through the steps below, says `ok`, `done` or `todo` for each, and is safe to re-run. With `--apply` in a
-terminal it asks for each missing secret one at a time (an app's store secrets: what each is, then its value, hidden,
-or a file it encodes), and it ends by opening one PR with what it wrote: that PR's CI is the proof. What only a person
-can do stays a `todo` line.
+It goes through the steps below, says `ok`, `done` or `todo` for each, and is safe to re-run: every step checks first,
+so a run stopped anywhere resumes where it stopped. What only a person can do, it walks through:
+
+- **The App installed** on the repository: read from GitHub for an organization (with `admin:org`); on a personal
+  account GitHub shows it to no one but the App, so in a terminal it says where to look and asks once. The answer is
+  kept in the clone's `.git/kskill-setup.state`, never committed.
+- **Variables:** `KSKILL_BOT` and `KSKILL_TOKEN_BROKER_URL`, set from the shell with `--apply`, read back from the
+  repository on a later run.
+- **Secrets, by name only:** the ones a workflow here fails without. For each missing one it says what it is, where to
+  find it, the exact command, and what goes wrong. With `--apply` in a terminal it waits while you run the command in
+  another terminal (Enter: check the name again, `s`: skip, `q`: stop here), one secret at a time. **It never reads,
+  asks for, prints or stores a value**: `gh secret set NAME --repo owner/repo` asks for it, hidden, and a file is
+  encoded straight into gh: `base64 < cert.p12 | tr -d '\n' | gh secret set IOS_DIST_CERTIFICATE_P12_BASE64 --repo owner/repo`.
+- **A Flutter app's store secrets** (Android: the upload keystore, its password, alias and key password, the Play
+  service account's JSON key; iOS: the distribution `.p12` and its password, the App Store Connect key id, issuer id and
+  `.p8`). The Android signing secrets count under either name, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+  `ANDROID_KEY_PASSWORD` or their older `CM_*` names; it asks for the ones this version's deliver workflow reads. The
+  pitfalls it names: a `.p12` needs a password; macOS's `/usr/bin/openssl` is LibreSSL and cannot read a modern PKCS#12
+  (Homebrew's OpenSSL 3 can, with `-legacy` for an older RC2-encrypted file); with no Java installed, `keytool` ships
+  with Android Studio (`/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/keytool`).
+
+It ends by opening one PR with what it wrote (a re-run finds that PR again): its CI is the proof. A caller's header
+names this command (`Do not edit: run scripts/kskill-setup.sh --apply again.`).
 
 The steps, by hand:
 
