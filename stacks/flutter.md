@@ -148,8 +148,11 @@ gh api repos/:owner/:repo/rulesets                       # K2.1: is the gate act
 ```
 
 Flutter-specific K2.3/K2.4 notes:
-- Android keystore (base64 secret) + store password + key alias + key password. Keystores don't expire,
-  but **losing one is unrecoverable** — confirm an off-machine backup exists.
+- Android keystore (base64 secret) + store password + key alias + key password: `ANDROID_KEYSTORE_BASE64`,
+  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. The lane gets `ANDROID_KEYSTORE_PATH` and
+  the three values; `android/app/build.gradle(.kts)` reads `ANDROID_*` first. The old Codemagic names (`CM_*`) are
+  still accepted as a deprecated fallback and still exported to the lane, until every app holds the new secrets.
+  Keystores don't expire, but **losing one is unrecoverable** — confirm an off-machine backup exists.
 - iOS: an Apple Distribution certificate imported per run + a profile fetched from App Store Connect.
   **Certificates expire yearly and Apple caps you at 3 active** — record the expiry somewhere visible.
 - App Store Connect API key **role** matters: App Manager fetches an existing profile; Xcode cloud

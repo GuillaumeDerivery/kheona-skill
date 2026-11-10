@@ -46,6 +46,10 @@ check "... no secret value written anywhere" "$(grep -c 'secret set' "$T/log")" 
 check "... the PR left to a person when it cannot push" "$out" 'todo  the PR'
 echo 'ANDROID_KEYSTORE_BASE64 CM_KEYSTORE_PASSWORD CM_KEY_ALIAS CM_KEY_PASSWORD PLAY_STORE_JSON_KEY_BASE64 IOS_DIST_CERTIFICATE_P12_BASE64 IOS_DIST_CERTIFICATE_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_BASE64' > "$FAKE/secrets"
 out=$(run)
+check "the old CM_* names alone: the ANDROID_* ones asked for" "$out" 'todo  secret ANDROID_KEY_ALIAS: the upload key.s alias in the keystore \(the same value as CM_KEY_ALIAS'
+check "... each of the three" "$(grep -c 'todo  secret ANDROID_KEY' <<<"$out")" '^3$'
+echo 'ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD PLAY_STORE_JSON_KEY_BASE64 IOS_DIST_CERTIFICATE_P12_BASE64 IOS_DIST_CERTIFICATE_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_BASE64' > "$FAKE/secrets"
+out=$(run)
 check "a re-run with the secrets set: ok" "$out" 'ok    secrets \(10 needed, all set\)'
 check "... and the callers ok" "$out" 'ok    callers at v9\.9\.9'
 echo "$pass passed, $failed failed"; [ "$failed" = 0 ]
