@@ -77,6 +77,23 @@ env:
   KSKILL_LIB_REPO: ${{ vars.KSKILL_LIB_REPO }}
 
 jobs:
+  # The squash merge's subject is the PR title, and release-please reads it: fix → patch, feat → minor, `!` → major,
+  # the other types release nothing. A title of no known type would release nothing, silently.
+  title:
+    name: Conventional title
+    if: github.event.action != 'ready_for_review'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Check the title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          re='^(feat|fix|perf|refactor|revert|docs|chore|ci|build|test|style)(\([A-Za-z0-9._/-]+\))?!?: [^ ].*'
+          if [[ $TITLE =~ $re ]]; then echo "OK: $TITLE"; exit 0; fi
+          echo "::error::The PR title is the squash commit's subject, which release-please reads: write it as <type>(<scope>)?(!)?: <what>, type one of feat (minor), fix or perf (patch), refactor, revert, docs, chore, ci, build, test, style (no release). Got: $TITLE"
+          exit 1
+
   ci:
     name: CI
     if: github.event.action != 'ready_for_review'

@@ -2,7 +2,8 @@
 # not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # Trigger: pull requests and pushes of this repository
 # Purpose: Rule 0: fail on any forbidden name, in files, commits, and the PR's title and body
-# Effect: none. A fork's PR gets no secret: `kskill-guard.yml`, from the private runner repository, re-checks it.
+# Effect: the commit status `rule-0` on a PR's head, which `main` requires. A fork's PR gets no secret, so this job
+# skips it and its `rule-0` stays pending until `kskill-guard.yml`, from the private runner repository, sets it.
 name: Guard
 
 on:
@@ -18,6 +19,9 @@ jobs:
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
+      statuses: write          # rule-0 on the PR's head: a skipped job would pass a required check, a status cannot
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -34,3 +38,12 @@ jobs:
         run: |
           printf '%s\n%s\n' "$TITLE" "$BODY" > "$RUNNER_TEMP/pr.txt"
           node .github/scripts/kskill-guard.mjs --self "$GITHUB_REPOSITORY" --commits "${BASE:+$BASE..}$TIP" --text-file "$RUNNER_TEMP/pr.txt"
+      - name: Report rule-0
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ job.status }}
+          TIP: ${{ github.event.pull_request.head.sha }}
+        run: |
+          state=failure; [ "$OUTCOME" = success ] && state=success
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$TIP" -f state="$state" -f context=rule-0 -f description="Forbidden names" > /dev/null

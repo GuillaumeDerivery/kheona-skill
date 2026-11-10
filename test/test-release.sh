@@ -32,7 +32,7 @@ check() { # check <name> <condition...>
 has_text() { grep -qE -- "$2" "$1"; }
 not() { ! "$@"; }
 
-NODE_CFG='{"role":"project","workflows":{"cd":{"prod":{"ecrRepository":"svc","region":"eu-west-1","cluster":"c1","namespace":"prod","deployments":["api"],"cronjobs":["nightly"],"healthcheckUrl":"https://api.example.com/healthcheck"},"staging":false}}}'
+NODE_CFG='{"role":"project","workflows":{"cd":{"prod":{"ecrRepository":"svc","region":"eu-west-1","cluster":"c1","namespace":"prod","deployments":["api"],"cronjobs":["nightly"]},"staging":false}}}'
 
 # --- skips: nothing printed ---------------------------------------------------------------------------------
 for case in 'library|{"role":"library"}' 'cd off|{"role":"project","workflows":{"cd":{"enabled":false}}}' \

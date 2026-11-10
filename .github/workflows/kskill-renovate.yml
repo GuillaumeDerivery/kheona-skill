@@ -132,7 +132,7 @@ jobs:
           echo "::add-mask::$token"
           echo "token=$token" >> "$GITHUB_OUTPUT"
 
-      # Read-only, $KSKILL_REPO (the preset) and the library repository (the submodule).
+      # Read-only, $KSKILL_REPO (the preset) and $KSKILL_LIB_REPO (the submodule).
       - name: Mint the library token
         id: shared
         uses: $/.github/actions/kskill-token
@@ -147,15 +147,17 @@ jobs:
         env:
           SHARED: ${{ steps.shared.outputs.token }}
         run: |
+          [ -n "${KSKILL_LIB_REPO:-}" ] || { echo "::error::Variable KSKILL_LIB_REPO is not set: Renovate cannot read the lib submodule."; exit 1; }
           {
-            echo "RENOVATE_HOST_RULES=$(jq -nc --arg t "$SHARED" '[
-              {matchHost: "https://api.github.com/repos/$KSKILL_REPO/", hostType: "github", token: $t},
-              {matchHost: "https://github.com/the library repository", hostType: "github", token: $t}]')"
+            echo "RENOVATE_HOST_RULES=$(jq -nc --arg t "$SHARED" --arg preset "$KSKILL_REPO" --arg lib "$KSKILL_LIB_REPO" '[
+              {matchHost: "https://api.github.com/repos/\($preset)/", hostType: "github", token: $t},
+              {matchHost: "https://api.github.com/repos/\($lib)/", hostType: "github", token: $t},
+              {matchHost: "https://github.com/\($lib)", hostType: "github", token: $t}]')"
             echo "GIT_CONFIG_COUNT=2"
-            echo "GIT_CONFIG_KEY_0=url.https://x-access-token:${SHARED}@github.com/the library repository.insteadOf"
-            echo "GIT_CONFIG_VALUE_0=git@github.com:the library repository"
-            echo "GIT_CONFIG_KEY_1=url.https://x-access-token:${SHARED}@github.com/the library repository.insteadOf"
-            echo "GIT_CONFIG_VALUE_1=https://github.com/the library repository"
+            echo "GIT_CONFIG_KEY_0=url.https://x-access-token:${SHARED}@github.com/${KSKILL_LIB_REPO}.insteadOf"
+            echo "GIT_CONFIG_VALUE_0=git@github.com:${KSKILL_LIB_REPO}"
+            echo "GIT_CONFIG_KEY_1=url.https://x-access-token:${SHARED}@github.com/${KSKILL_LIB_REPO}.insteadOf"
+            echo "GIT_CONFIG_VALUE_1=https://github.com/${KSKILL_LIB_REPO}"
           } >> "$GITHUB_ENV"
 
       - name: Run Renovate

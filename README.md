@@ -57,12 +57,16 @@ Four places hold secrets, and only the broker holds the GitHub App key. Values a
 
 ### On the private runner repository
 
-The runner repository calls `kskill-guard.yml`, which reads a fork's PR here without running it.
+The runner repository calls `kskill-guard.yml` on a schedule: it reads each fork's PR here without running it and sets
+its `rule-0` status, with the App's token from the broker (the runner is in the broker's `acrossOwners`).
 
 | Secret | What it does |
 |---|---|
 | `KSKILL_GUARD_TERMS` | The same list, so a fork's PR is checked too. |
-| `STATUS_TOKEN` | A token that may set the generic `guard` commit status on this repository's PRs. |
+
+`main` requires `rule-0` (a commit status: the guard on this repository's own PRs, the runner on a fork's), `test`
+and `zizmor`. A required check passes on a skipped job; a status nobody set stays pending, so a fork's PR waits for the
+runner.
 
 ### On each repository with the `kheona-skill` or `kskill` topic
 

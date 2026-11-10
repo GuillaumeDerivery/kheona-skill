@@ -133,8 +133,8 @@ reachable with nothing but `curl`. Three pieces, all required:
    The same `runningCommit()` is the error tracker's `release` (K8.4), so an event names the code that
    raised it. `package.json` gets `"private": true` and a `version` nobody bumps.
 
-A test sets `GIT_SHA` and asserts `commit` echoes it, and a second asserts `null` with it unset. With
-`workflows.cd.<env>.healthcheckUrl` set, the deploy calls it after the rollout and fails unless `commit` is the SHA.
+A test sets `GIT_SHA` and asserts `commit` echoes it, and a second asserts `null` with it unset. The deploy itself
+reads the running image back from the cluster.
 
 ```bash
 grep -n "GIT_SHA" Dockerfile                                  # the runtime stage exports it
