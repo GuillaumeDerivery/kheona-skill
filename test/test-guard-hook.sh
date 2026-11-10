@@ -16,7 +16,7 @@ git -C "$C" config user.email a@example.com; git -C "$C" config user.name a; git
 git -C "$C" remote set-url origin https://github.com/owner/kheona-skill.git
 git -C "$C" remote add local "$T/remote.git"
 mkdir -p "$C/scripts" "$C/.github/scripts"
-cp "$HERE/scripts/kskill-guard-hook.sh" "$C/scripts/"; cp "$HERE/.github/scripts/kskill-guard.mjs" "$C/.github/scripts/"
+cp "$HERE/scripts/kskill-guard-hook.sh" "$HERE/scripts/kskill-guard-command.mjs" "$C/scripts/"; cp "$HERE/.github/scripts/kskill-guard.mjs" "$C/.github/scripts/"
 echo clean > "$C/a.txt"; git -C "$C" add -A; git -C "$C" commit -qm first --no-verify
 
 out=$(cd "$C" && bash scripts/kskill-guard-hook.sh install "$T/list" 2>&1); rc=$?
@@ -52,6 +52,18 @@ check "... the term is never printed" "$( [[ $out == *ecret* ]] && echo leaked |
 check "claude: a read-only gh command naming a term passes" "$(hook 'gh run view 1 --repo owner/kheona-skill --log | grep SecretCorp')" '^$'
 check "claude: a read-only command in the clone passes" "$(hook 'git log --grep SecretCorp' "$C")" '^$'
 check "claude: gh api sending a field is a write" "$(hook "gh api repos/owner/kheona-skill/issues -f title=SecretCorp" | jq -r .hookSpecificOutput.permissionDecision)" '^deny$'
+check "claude: a reader before a clean write is not checked" "$(hook 'cd /x/SecretCorp && grep -r a . | head; gh pr merge 5 --repo owner/kheona-skill')" '^$'
+check "claude: a value set before the write is checked" "$(hook 'x=SecretCorp; gh pr create --repo owner/kheona-skill --title "$x"' | jq -r .hookSpecificOutput.permissionDecision)" '^deny$'
+check "claude: data piped into the write is checked" "$(hook 'echo SecretCorp | gh pr comment 1 --repo owner/kheona-skill --body-file -' | jq -r .hookSpecificOutput.permissionDecision)" '^deny$'
+check "claude: a heredoc body with separators stays whole" "$(hook "gh pr create --repo owner/kheona-skill --body \"\$(cat <<'EOF'
+a; b && c
+SecretCorp
+EOF
+)\"" | jq -r .hookSpecificOutput.permissionDecision)" '^deny$'
+check "claude: a file written before the write is checked" "$(hook "cat > b.md <<'EOF'
+SecretCorp
+EOF
+gh pr create --repo owner/kheona-skill --body-file b.md" | jq -r .hookSpecificOutput.permissionDecision)" '^deny$'
 check "claude: a clean PR passes" "$(hook 'gh pr create --repo owner/kheona-skill --title "fix: a thing"')" '^$'
 echo 'body SecretCorp' > "$T/body.md"
 check "claude: a body file is read" "$(hook "gh pr create --repo owner/kheona-skill --body-file $T/body.md" | jq -r .hookSpecificOutput.permissionDecision)" '^deny$'

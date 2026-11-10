@@ -13,7 +13,8 @@
 #                                         git or gh command that writes (a commit, a tag, a push, a PR, issue, comment,
 #                                         release, or a gh api call that sends data) aimed at a guarded repository,
 #                                         when its text, body file or pushed commits hold a term. A command that only
-#                                         reads passes. Silent when nothing is configured.
+#                                         reads passes; in a longer one, only what can reach the write is checked
+#                                         (scripts/kskill-guard-command.mjs). Silent when nothing is configured.
 # The list: KSKILL_GUARD_LIST, else git config kheona.guardList. A hook with no list refuses (the guard exits 64).
 set -uo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -63,9 +64,10 @@ case "${1:-}" in
     guarded=$(git config --global --get-all kheona.guarded 2>/dev/null) || exit 0
     cmd=$(jq -r '.tool_input.command // empty' <<<"$input"); cwd=$(jq -r '.cwd // empty' <<<"$input")
     grep -qE '(^|[;&|( ]|\$\()(git|gh)( |$)' <<<"$cmd" || exit 0
-    # Only a command that writes: reading (gh run view, git log, gh api GET) never publishes anything.
-    writes='(^|[;&|( ]|\$\()(git( -C [^ ]+)? (commit|tag|push|notes)|gh (pr (create|edit|comment|review|merge)|issue (create|edit|comment)|release (create|edit|upload)|repo (create|edit)|gist (create|edit)|label (create|edit)|api [^;&|]*(-X|--method) *(POST|PUT|PATCH)|api [^;&|]*( -f| -F| --field| --raw-field| --input)))'
-    grep -qE "$writes" <<<"$cmd" || exit 0
+    # Only a command that writes, and only the part of it that can carry data to the write: a pipeline that just
+    # reads (cd, grep, gh run view, git log) is left out, so a private path there does not block a clean PR.
+    scoped=$(node "$here/scripts/kskill-guard-command.mjs" <<<"$cmd") || scoped=$cmd
+    [ -n "$scoped" ] || exit 0
     # The clone a command acts in: its cwd, a `cd DIR` or a `git -C DIR`.
     target='' clone=''
     for d in "$cwd" $(grep -oE '(cd|-C) +[^ ;&|)]+' <<<"$cmd" | awk '{print $2}'); do
@@ -78,9 +80,9 @@ case "${1:-}" in
     done <<<"$guarded"
     [ -n "$target" ] || exit 0
     T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-    printf '%s\n' "$cmd" > "$T/command"
+    printf '%s\n' "$scoped" > "$T/command"
     files=(--text-file "$T/command")
-    for f in $(grep -oE '(--body-file|-F|--file) +[^ ;&|)]+' <<<"$cmd" | awk '{print $2}'); do
+    for f in $(grep -oE '(--body-file|-F|--file) +[^ ;&|)]+' <<<"$scoped" | awk '{print $2}'); do
       f=${f/#\~/$HOME}; case $f in /*) ;; *) f="${cwd:-.}/$f" ;; esac; [ -f "$f" ] && files+=(--text-file "$f")
     done
     out=$(KSKILL_GUARD_LIST=$l node "$guard" --repo "${clone:-$here}" --self "$target" --no-files "${files[@]}" 2>&1) || hit=1
