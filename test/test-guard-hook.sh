@@ -49,6 +49,9 @@ check "claude: a longer name that starts the same, silent" "$(hook 'gh pr create
 out=$(hook 'gh pr create --repo owner/kheona-skill --title "fix: SecretCorp"')
 check "claude: a PR title on the guarded repository is denied" "$(jq -r .hookSpecificOutput.permissionDecision <<<"$out")" '^deny$'
 check "... the term is never printed" "$( [[ $out == *ecret* ]] && echo leaked || echo clean )" '^clean$'
+check "claude: a read-only gh command naming a term passes" "$(hook 'gh run view 1 --repo owner/kheona-skill --log | grep SecretCorp')" '^$'
+check "claude: a read-only command in the clone passes" "$(hook 'git log --grep SecretCorp' "$C")" '^$'
+check "claude: gh api sending a field is a write" "$(hook "gh api repos/owner/kheona-skill/issues -f title=SecretCorp" | jq -r .hookSpecificOutput.permissionDecision)" '^deny$'
 check "claude: a clean PR passes" "$(hook 'gh pr create --repo owner/kheona-skill --title "fix: a thing"')" '^$'
 echo 'body SecretCorp' > "$T/body.md"
 check "claude: a body file is read" "$(hook "gh pr create --repo owner/kheona-skill --body-file $T/body.md" | jq -r .hookSpecificOutput.permissionDecision)" '^deny$'

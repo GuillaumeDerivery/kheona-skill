@@ -10,8 +10,10 @@
 #   kskill-guard-hook.sh commit-msg FILE  the message
 #   kskill-guard-hook.sh pre-push         the commits not yet on the remote
 #   kskill-guard-hook.sh claude           a Claude Code PreToolUse hook on Bash: reads the tool call on stdin and denies a
-#                                         git or gh command aimed at a guarded repository whose text, body file or
-#                                         pushed commits hold a term. Silent when nothing is configured.
+#                                         git or gh command that writes (a commit, a tag, a push, a PR, issue, comment,
+#                                         release, or a gh api call that sends data) aimed at a guarded repository,
+#                                         when its text, body file or pushed commits hold a term. A command that only
+#                                         reads passes. Silent when nothing is configured.
 # The list: KSKILL_GUARD_LIST, else git config kheona.guardList. A hook with no list refuses (the guard exits 64).
 set -uo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -61,6 +63,9 @@ case "${1:-}" in
     guarded=$(git config --global --get-all kheona.guarded 2>/dev/null) || exit 0
     cmd=$(jq -r '.tool_input.command // empty' <<<"$input"); cwd=$(jq -r '.cwd // empty' <<<"$input")
     grep -qE '(^|[;&|( ]|\$\()(git|gh)( |$)' <<<"$cmd" || exit 0
+    # Only a command that writes: reading (gh run view, git log, gh api GET) never publishes anything.
+    writes='(^|[;&|( ]|\$\()(git( -C [^ ]+)? (commit|tag|push|notes)|gh (pr (create|edit|comment|review|merge)|issue (create|edit|comment)|release (create|edit|upload)|repo (create|edit)|gist (create|edit)|label (create|edit)|api [^;&|]*(-X|--method) *(POST|PUT|PATCH)|api [^;&|]*( -f| -F| --field| --raw-field| --input)))'
+    grep -qE "$writes" <<<"$cmd" || exit 0
     # The clone a command acts in: its cwd, a `cd DIR` or a `git -C DIR`.
     target='' clone=''
     for d in "$cwd" $(grep -oE '(cd|-C) +[^ ;&|)]+' <<<"$cmd" | awk '{print $2}'); do
