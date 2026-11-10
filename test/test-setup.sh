@@ -56,7 +56,9 @@ check "... each store secret named" "$out" 'todo  secret ASC_KEY_ID'
 check "... with where to find it" "$out" 'Users and Access, Integrations, App Store Connect API, Team Keys'
 check "... the exact command for a value (gh asks for it)" "$out" 'Set it: gh secret set ASC_ISSUER_ID --repo o/app   \(gh asks'
 check "... the exact command for a file" "$out" "base64 < cert\\.p12 \\| tr -d '\\\\n' \\| gh secret set IOS_DIST_CERTIFICATE_P12_BASE64 --repo o/app"
-check "... the .p12 needs a password" "$out" 'give the \.p12 a password'
+check "... the .p12's password: set it if there is one" "$out" 'exported with one, set it too: gh secret set IOS_DIST_CERTIFICATE_PASSWORD --repo o/app'
+check "... none: leave the secret unset" "$out" 'Without one, leave IOS_DIST_CERTIFICATE_PASSWORD unset \(GitHub cannot store an empty secret\)'
+check "... and it is never asked for on its own" "$(grep -c 'todo  secret IOS_DIST_CERTIFICATE_PASSWORD' <<<"$out")" '^0$'
 check "... macOS's openssl is LibreSSL" "$out" '/usr/bin/openssl is LibreSSL and cannot read a modern PKCS#12'
 check "... Homebrew's OpenSSL, -legacy for RC2" "$out" 'openssl@3\)/bin/openssl" pkcs12 -in cert\.p12 -noout -info, adding -legacy'
 
@@ -82,9 +84,9 @@ check "... exit 1" "$rc" '^1$'
 check "... still no secret set by the script" "$(grep -c 'secret set' "$T/log")" '^0$'
 
 # Done: either name of a signing secret counts, and the App is not asked again.
-echo 'ANDROID_KEYSTORE_BASE64 CM_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD PLAY_STORE_JSON_KEY_BASE64 IOS_DIST_CERTIFICATE_P12_BASE64 IOS_DIST_CERTIFICATE_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_BASE64' > "$FAKE/secrets"
+echo 'ANDROID_KEYSTORE_BASE64 CM_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD PLAY_STORE_JSON_KEY_BASE64 IOS_DIST_CERTIFICATE_P12_BASE64 ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_BASE64' > "$FAKE/secrets"
 out=$(KSKILL_SETUP_TTY=1 run --apply </dev/null)
-check "a re-run with the secrets set, CM_* and ANDROID_* mixed: ok" "$out" 'ok    secrets \(10 needed, all set\)'
+check "a re-run with the secrets set, CM_* and ANDROID_* mixed, no .p12 password: ok" "$out" 'ok    secrets \(9 needed, all set\)'
 check "... the App not asked again" "$out" 'ok    App app-bot installed \(confirmed by a person\)'
 check "... the variables read back from the repository" "$out" 'ok    variable KSKILL_BOT'
 check "... and the callers ok" "$out" 'ok    callers at v9\.9\.9'

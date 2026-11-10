@@ -36,10 +36,11 @@ so a run stopped anywhere resumes where it stopped. What only a person can do, i
   asks for, prints or stores a value**: `gh secret set NAME --repo owner/repo` asks for it, hidden, and a file is
   encoded straight into gh: `base64 < cert.p12 | tr -d '\n' | gh secret set IOS_DIST_CERTIFICATE_P12_BASE64 --repo owner/repo`.
 - **A Flutter app's store secrets** (Android: the upload keystore, its password, alias and key password, the Play
-  service account's JSON key; iOS: the distribution `.p12` and its password, the App Store Connect key id, issuer id and
-  `.p8`). The Android signing secrets count under either name, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
-  `ANDROID_KEY_PASSWORD` or their older `CM_*` names; it asks for the ones this version's deliver workflow reads. The
-  pitfalls it names: a `.p12` needs a password; macOS's `/usr/bin/openssl` is LibreSSL and cannot read a modern PKCS#12
+  service account's JSON key; iOS: the distribution `.p12` and its password if it has one, the App Store Connect key id,
+  issuer id and `.p8`). The Android signing secrets count under either name, `ANDROID_KEYSTORE_PASSWORD`,
+  `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` or their older `CM_*` names; it asks for the ones this version's deliver
+  workflow reads. The pitfalls it names: a `.p12` without a password leaves `IOS_DIST_CERTIFICATE_PASSWORD` unset
+  (GitHub cannot store an empty secret); macOS's `/usr/bin/openssl` is LibreSSL and cannot read a modern PKCS#12
   (Homebrew's OpenSSL 3 can, with `-legacy` for an older RC2-encrypted file); with no Java installed, `keytool` ships
   with Android Studio (`/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/keytool`).
 

@@ -144,7 +144,7 @@ signing() { if grep -q "secrets\.ANDROID_$1" "$deliver" 2>/dev/null; then echo "
 need=()
 if [ -f "$DIR/.github/workflows/kskill-deliver.yml" ] && [ "$(cfg .workflows.cd.enabled)" != false ]; then
   [ "$(cfg .workflows.cd.android.enabled)" = false ] || need+=(ANDROID_KEYSTORE_BASE64 "$(signing KEYSTORE_PASSWORD)" "$(signing KEY_ALIAS)" "$(signing KEY_PASSWORD)" PLAY_STORE_JSON_KEY_BASE64)
-  [ "$(cfg .workflows.cd.ios.enabled)" = false ] || need+=(IOS_DIST_CERTIFICATE_P12_BASE64 IOS_DIST_CERTIFICATE_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_BASE64)
+  [ "$(cfg .workflows.cd.ios.enabled)" = false ] || need+=(IOS_DIST_CERTIFICATE_P12_BASE64 ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_BASE64)
 fi
 if [ -f "$DIR/.github/workflows/kskill-deploy.yml" ]; then
   for env in staging prod; do
@@ -186,13 +186,13 @@ guide() {
       echo "  Where: Keychain Access on the Mac that created it, My Certificates, \"Apple Distribution: ...\": expand it,"
       echo "    select the certificate and its key, Export 2 items, .p12. None there: developer.apple.com, Certificates, +,"
       echo "    Apple Distribution, from a request made in Keychain Access (Certificate Assistant)."
-      echo "  Pitfalls: give the .p12 a password (an empty one fails to import on the runner). To look inside it, macOS's"
-      echo "    /usr/bin/openssl is LibreSSL and cannot read a modern PKCS#12: use Homebrew's OpenSSL 3,"
-      echo "    \"\$(brew --prefix openssl@3)/bin/openssl\" pkcs12 -in cert.p12 -noout -info, adding -legacy for an older"
-      echo "    RC2-encrypted file."
+      echo "  Password: exported with one, set it too: gh secret set IOS_DIST_CERTIFICATE_PASSWORD --repo $REPO."
+      echo "    Without one, leave IOS_DIST_CERTIFICATE_PASSWORD unset (GitHub cannot store an empty secret): the delivery"
+      echo "    imports the .p12 with an empty password, re-encoding it first when it was made with OpenSSL."
+      echo "  Pitfall: to look inside it, macOS's /usr/bin/openssl is LibreSSL and cannot read a modern PKCS#12:"
+      echo "    use Homebrew's OpenSSL 3, \"\$(brew --prefix openssl@3)/bin/openssl\" pkcs12 -in cert.p12 -noout -info, adding -legacy"
+      echo "    for an older RC2-encrypted file."
       file=cert.p12 ;;
-    IOS_DIST_CERTIFICATE_PASSWORD)
-      echo "  What: the password the .p12 was exported with." ;;
     ASC_KEY_ID)
       echo "  What: the App Store Connect API key's id (10 characters)."
       echo "  Where: App Store Connect, Users and Access, Integrations, App Store Connect API, Team Keys: the Key ID column."
