@@ -21,7 +21,6 @@ jobs:
       pull-requests: read
     uses: ./.github/workflows/kskill-deploy.yml
     with:
-      stack: node
       gate: false
       dry_run: true
 
@@ -33,5 +32,4 @@ jobs:
       pull-requests: read
     uses: ./.github/workflows/kskill-deliver-flutter.yml
     with:
-      stack: flutter
       dry_run: true

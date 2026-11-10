@@ -19,7 +19,9 @@ check "... no environment input" "$(grep -c 'environment' "$R/.github/workflows/
 check "... reads the release PR" "$(grep -c 'pull-requests: read' "$R/.github/workflows/kskill-deploy.yml")" '^1$'
 check "no custom job by default" "$(grep -c 'custom:' "$R/.github/workflows/kskill-deploy.yml")" '^0$'
 check "pinned by SHA, the tag as a comment" "$(grep 'uses:' "$R/.github/workflows/kskill-pr.yml")" "uses: owner/kheona-skill/.github/workflows/kskill-pr.yml@$SHA # v1.2.3$"
-check "the stack is an input" "$(grep -c 'stack: node' "$R/.github/workflows/kskill-pr.yml")" '^1$'
+check "no caller names its stack (the shared workflows read it)" "$(grep -l 'stack:' "$R"/.github/workflows/*.yml | wc -l | tr -d ' ')" '^0$'
+check "main: one shared workflow, whatever the stack" "$(grep 'uses:' "$R/.github/workflows/kskill-main.yml")" "kskill-main.yml@$SHA # v1.2.3$"
+check "... the stack: node, deploys staging" "$(node "$C" stack --repo "$R" | tr '\n' ' ')" '^stack=node deploys=true $'
 check "grants the OIDC identity" "$(grep -c 'id-token: write' "$R/.github/workflows/kskill-pr.yml")" '^1$'
 check "no App key, no inherit" "$(grep -rlE 'PRIVATE_KEY|secrets: inherit' "$R/.github/workflows" | wc -l | tr -d ' ')" '^0$'
 node "$C" check --repo "$R"; check "check: exact: exit 0" "$?" '^0$'
@@ -35,6 +37,8 @@ out=$(node "$C" check --repo "$R" --json); check "an unknown kskill file fails" 
 # others
 R=$T/fl; mkdir -p "$R"; : > "$R/pubspec.yaml"; echo '{"role":"project"}' > "$R/.kheona.json"; w "$R"
 check "Flutter: delivery, no ship" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-claude.yml kskill-deliver.yml kskill-inbox.yml kskill-main.yml kskill-pr.yml kskill-release-please.yml $'
+check "... main is the same shared workflow" "$(grep -c 'kskill-main.yml@' "$R/.github/workflows/kskill-main.yml")" '^1$'
+check "... the stack: flutter, deploys nothing from main" "$(node "$C" stack --repo "$R" | tr '\n' ' ')" '^stack=flutter deploys=false $'
 check "... delivery pinned by the version tag" "$(grep 'uses:' "$R/.github/workflows/kskill-deliver.yml")" '@v1.2.3$'
 node "$C" check --repo "$R"; check "Flutter: check passes with a tag pin" "$?" '^0$'
 sed -i.bak 's/@v1.2.3$/@v1.2.4/' "$R/.github/workflows/kskill-deliver.yml"
@@ -57,11 +61,17 @@ echo '{"workflows":{"cd":{"target":"custom","custom":{"workflow":"kskill-x.yml"}
 out=$(node "$C" write --repo "$R" --self owner/kheona-skill --sha $SHA --version v1.2.3 2>&1); check "custom workflow named kskill-*: refused" "$?" '^1$'
 R=$T/lib; mkdir -p "$R"; echo '{}' > "$R/package.json"; echo '{"role":"library"}' > "$R/.kheona.json"; w "$R"
 check "a library: release-please and its forks' notice, no deploy" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-claude.yml kskill-inbox.yml kskill-main.yml kskill-pr.yml kskill-release-please.yml kskill-sync-upstream.yml $'
+check "... the stack: node, deploys nothing from main" "$(node "$C" stack --repo "$R" | tr '\n' ' ')" '^stack=node deploys=false $'
+echo '{"role":"library","workflows":{"cd":{"target":"custom","prod":{}}}}' > "$R/.kheona.json"; w "$R"
+check "... no staging to hand over, even with a custom target" "$(grep -c 'custom:' "$R/.github/workflows/kskill-main.yml")" '^0$'
+R=$T/py; mkdir -p "$R"; : > "$R/Pipfile"; w "$R"
+check "Python: a service" "$(node "$C" stack --repo "$R" | tr '\n' ' ')" '^stack=python deploys=true $'
 R=$T/nostack; mkdir -p "$R"; echo '{"role":"project"}' > "$R/.kheona.json"; w "$R"
 check "no stack: @claude, the inbox and release-please, no CI" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-claude.yml kskill-inbox.yml kskill-release-please.yml $'
+out=$(node "$C" stack --repo "$R" 2>&1); check "... and the gate's stack read fails, never passes silently" "$?:$out" '^1:::error::No stack'
 R=$T/inf; mkdir -p "$R"; echo '{"role":"infra"}' > "$R/.kheona.json"; w "$R"
 check "infra: the PR alone" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-pr.yml $'
-check "... with the infra gate" "$(grep -c 'stack: infra' "$R/.github/workflows/kskill-pr.yml")" '^1$'
+check "... the stack: infra, no stack named in the caller" "$(node "$C" stack --repo "$R" | head -1):$(grep -c 'stack:' "$R/.github/workflows/kskill-pr.yml")" '^stack=infra:0$'
 out=$(node "$C" write --repo "$T" --self owner/kheona-skill --sha abc --version v1.2.3 2>&1); check "a short SHA is refused" "$?" '^64$'
 out=$(node "$C" write --repo "$T" --self owner/kheona-skill --sha $SHA --version v1 2>&1); check "a version that is not vX.Y.Z is refused" "$?" '^64$'
 echo "$pass passed, $failed failed"; [ "$failed" = 0 ]

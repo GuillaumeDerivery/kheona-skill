@@ -23,8 +23,9 @@ which, on infra, means an unreviewed change to live resources.
 
 One infra repository per GitHub owner (`owner/infra`: Terraform under `terraform/`, Kubernetes manifests under
 `eks/<namespace>/`, secrets under git-crypt) takes `.kheona.json` `"role": "infra"`. Applying is manual (`terraform apply`,
-`kubectl apply`), so nothing about it merges or applies itself; the automation says **when** to act. Its callers are
-`kskill-pr.yml` and `kskill-ci.yml` (calling `kskill-ci-infra.yml`), nothing else: no `kskill-main.yml`, deploy or inbox.
+`kubectl apply`), so nothing about it merges or applies itself; the automation says **when** to act. Its one caller is
+`kskill-pr.yml`, whose gate (`kskill-ci.yml`) reads the role and runs `kskill-ci-infra.yml`: no `kskill-main.yml`, deploy
+or inbox.
 
 - **Renovate** ([../renovate/infra.json](../renovate/infra.json), which `renovate.json` extends at the callers' version).
   Third-party images in `eks/**/*.ya?ml`, Terraform providers and modules: minor/patch in the weekly PR, majors as the
@@ -107,7 +108,7 @@ rebuilds the same commit under the same SHA tag.
 
 **Operations**
 ```bash
-ls .github/workflows/kskill-ci.yml        # the infra CI (K2.1 below)
+ls .github/workflows/kskill-pr.yml        # the infra CI (K2.1 below)
 aws cloudwatch describe-alarms            # at least one; each with an AlarmActions target; an AWS/ApplicationELB 5XX alarm
 aws elbv2 describe-load-balancers         #   wherever an application load balancer runs
 aws dlm get-lifecycle-policies; aws backup list-backup-plans   # an ENABLED DLM policy or a Backup plan
@@ -115,8 +116,8 @@ aws dlm get-lifecycle-policies; aws backup list-backup-plans   # an ENABLED DLM 
 
 ## K2 — Pipeline
 
-- **K2.1** The gate is the shared `kskill-ci-infra.yml`, called from the repository's `.github/workflows/kskill-ci.yml`
-  by `kskill-pr.yml` on every PR: the repository check and secret scan, `terraform fmt -check -recursive`,
+- **K2.1** The gate is the shared `kskill-ci-infra.yml`, which the shared `kskill-ci.yml` runs for `"role": "infra"`,
+  called by the repository's `kskill-pr.yml` on every PR: the repository check and secret scan, `terraform fmt -check -recursive`,
   `init -backend=false` + `validate` per root, `tflint --recursive`, `trivy config` (HIGH and CRITICAL fail,
   `.trivyignore` honoured) and `kubeconform -strict` over `eks/`. The Terraform version comes from `.terraform-version`
   or an exact `required_version` (K1.1). git-crypt files are ciphertext in CI: an encrypted `.tf` is emptied and the

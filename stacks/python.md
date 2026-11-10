@@ -3,8 +3,9 @@
 
 # Kheona stack extension — Python
 
-Covers Python services (Pipenv + pytest + pylint). The shared workflows are `kskill-ci-python.yml` (the gate),
-`kskill-main-service.yml` (a push to `main`: staging) and `kskill-deploy.yml` (a version tag: production).
+Covers Python services (Pipenv + pytest + pylint). The shared workflows are `kskill-ci.yml` (the gate, running
+`kskill-ci-python.yml` where a `Pipfile` or `pyproject.toml` is at the root), `kskill-main.yml` (a push to `main`:
+staging) and `kskill-deploy.yml` (a version tag: production).
 
 ## K1 — Toolchain
 

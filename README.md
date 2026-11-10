@@ -7,7 +7,7 @@ Shared CI, delivery and repository automation for GitHub, built to work the same
 
 ## What a repository gets
 
-- **CI per stack:** Node, Python, Flutter, Terraform and cluster manifests, one gate per pull request.
+- **CI for every stack:** Node, Python, Flutter, Terraform and cluster manifests, one gate per pull request. One shared workflow per job (`kskill-ci.yml`, `kskill-main.yml`, ...) reads the stack from the repository's files and `.kheona.json`: a caller never names it.
 - **Deploy:** build, push, roll out to EKS by image digest, read back what runs. Or hand over to the repository's own deploy.
 - **Release:** release-please's release PR; a person merges it, the version tag releases to production.
 - **Flutter delivery:** TestFlight and Google Play from one workflow.
@@ -42,7 +42,7 @@ node scripts/kskill-callers.mjs write --repo ../my-repo --self owner/kheona-skil
 - **A library** releases itself: its release PR merges once its gate passed (`workflows.releasePlease.merge`); the tag deploys nothing.
 - **Production callers pin this repository by its immutable version tag**, so an AWS role can trust only those versions: `token.actions.githubusercontent.com:job_workflow_ref` like `<owner>/kheona-skill/.github/workflows/kskill-deploy.yml@refs/tags/v2.*`, with `sub` `repo:<owner>/<repo>:ref:refs/tags/v*`. Prove the exact value with a dry run before tightening a trust policy.
 - **A custom deploy:** `workflows.cd.target: "custom"`. The release check and the gate stay here; the repository's own workflow (`workflows.cd.custom.workflow`, default `deploy.yml`, `on: workflow_call` with the inputs `environment` and `version`) deploys, with its own credentials.
-- **This repository** releases the same way (`release.yml`): a person merges its release PR, the release is immutable, and each repository gets it through one Renovate PR that moves its callers and its preset pin together.
+- **This repository** releases the same way (`release.yml`): a person merges its release PR, the release is immutable, and each repository gets it through one Renovate PR that moves its callers and its preset pin together. Renovate's post-upgrade step then writes the callers again with the generator of the new version (`scripts/kskill-callers-regenerate.mjs`), so a caller whose content changes arrives right in that PR.
 
 ## Secrets
 

@@ -4,8 +4,9 @@
 # Kheona stack extension — Node / TypeScript
 
 Covers services (backends, often on a shared library: `.kheona.json` `workflows.library.package`) and front ends
-(Next.js and others). The shared workflows are `kskill-ci-node.yml` (the gate), `kskill-main-service.yml` (a push to
-`main`: staging) and `kskill-deploy.yml` (a version tag: production).
+(Next.js and others). The shared workflows are `kskill-ci.yml` (the gate, running `kskill-ci-node.yml` where a
+`package.json` is at the root), `kskill-main.yml` (a push to `main`: staging; a library's runs its gate only) and
+`kskill-deploy.yml` (a version tag: production).
 
 ## K1 — Toolchain
 

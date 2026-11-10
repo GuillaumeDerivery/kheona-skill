@@ -24,8 +24,7 @@
     },
     "secrets": [
       "CLAUDE_CODE_OAUTH_TOKEN"
-    ],
-    "stack": false
+    ]
   },
   "kskill-deliver-flutter.yml": {
     "caller": "kskill-deliver.yml",
@@ -59,8 +58,7 @@
       "IOS_DIST_CERTIFICATE_PASSWORD",
       "PLAY_STORE_JSON_KEY_BASE64",
       "SENTRY_AUTH_TOKEN"
-    ],
-    "stack": true
+    ]
   },
   "kskill-deploy.yml": {
     "caller": "kskill-deploy.yml",
@@ -87,8 +85,7 @@
       "AWS_ACCESS_KEY_ID",
       "AWS_SECRET_ACCESS_KEY",
       "SLACK_WEBHOOK_URL"
-    ],
-    "stack": true
+    ]
   },
   "kskill-inbox.yml": {
     "caller": "kskill-inbox.yml",
@@ -133,50 +130,9 @@
     "secrets": [
       "CLAUDE_CODE_OAUTH_TOKEN",
       "SENTRY_AUTH_TOKEN"
-    ],
-    "stack": false
+    ]
   },
-  "kskill-main-flutter.yml": {
-    "caller": "kskill-main.yml",
-    "dispatchInputs": [],
-    "events": {
-      "push": {
-        "branches": [
-          "main"
-        ]
-      }
-    },
-    "inputTypes": {},
-    "name": "Kheona Skill \u00b7 Main",
-    "permissions": {
-      "actions": "read",
-      "contents": "read",
-      "id-token": "write"
-    },
-    "secrets": [],
-    "stack": true
-  },
-  "kskill-main-library.yml": {
-    "caller": "kskill-main.yml",
-    "dispatchInputs": [],
-    "events": {
-      "push": {
-        "branches": [
-          "main"
-        ]
-      }
-    },
-    "inputTypes": {},
-    "name": "Kheona Skill \u00b7 Main",
-    "permissions": {
-      "actions": "read",
-      "contents": "read",
-      "id-token": "write"
-    },
-    "secrets": [],
-    "stack": true
-  },
-  "kskill-main-service.yml": {
+  "kskill-main.yml": {
     "caller": "kskill-main.yml",
     "custom": true,
     "dispatchInputs": [],
@@ -199,8 +155,7 @@
       "AWS_ACCESS_KEY_ID",
       "AWS_SECRET_ACCESS_KEY",
       "SLACK_WEBHOOK_URL"
-    ],
-    "stack": true
+    ]
   },
   "kskill-pr.yml": {
     "caller": "kskill-pr.yml",
@@ -226,8 +181,7 @@
     },
     "secrets": [
       "CLAUDE_CODE_OAUTH_TOKEN"
-    ],
-    "stack": true
+    ]
   },
   "kskill-release-please.yml": {
     "caller": "kskill-release-please.yml",
@@ -248,8 +202,7 @@
       "id-token": "write",
       "pull-requests": "read"
     },
-    "secrets": [],
-    "stack": false
+    "secrets": []
   },
   "kskill-renovate.yml": {
     "caller": "kskill-renovate.yml",
@@ -282,8 +235,7 @@
       "contents": "read",
       "id-token": "write"
     },
-    "secrets": [],
-    "stack": false
+    "secrets": []
   },
   "kskill-sync-upstream.yml": {
     "caller": "kskill-sync-upstream.yml",
@@ -301,7 +253,6 @@
       "contents": "read",
       "id-token": "write"
     },
-    "secrets": [],
-    "stack": false
+    "secrets": []
   }
 }
