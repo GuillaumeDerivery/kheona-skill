@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.1](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.6.0...v2.6.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* Renovate updates lib and kheona-skill themselves again ([#51](https://github.com/GuillaumeDerivery/kheona-skill/issues/51)) ([893c417](https://github.com/GuillaumeDerivery/kheona-skill/commit/893c4177041c0f9d2a5d5270612872aa3e7cd4e9))
+
 ## [2.6.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.5.0...v2.6.0) (2026-11-10)
 
 
