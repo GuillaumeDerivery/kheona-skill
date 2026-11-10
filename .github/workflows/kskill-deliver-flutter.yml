@@ -628,7 +628,7 @@ jobs:
             # No password: a Keychain Access export imports as it is; OpenSSL's (any algorithm, -legacy or not) does
             # not, `security` rejects its empty password. Re-encoded under a generated one with OpenSSL 3, it does.
             echo "Re-encoding the passwordless .p12 under a generated password."
-            OPENSSL="$(brew --prefix openssl@3 2>/dev/null)/bin/openssl"
+            OPENSSL="$(brew --prefix openssl@3 2>/dev/null || true)/bin/openssl"
             [ -x "$OPENSSL" ] || OPENSSL=openssl
             "$OPENSSL" version | grep -q '^OpenSSL 3' \
               || { echo "::error::Re-encoding the .p12 needs OpenSSL 3, found: $("$OPENSSL" version)."; exit 1; }

@@ -64,7 +64,7 @@ check "... exit 1" "$(tail -1 <<<"$out")" '^rc=1$'
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir "$T/bin"
 # OpenSSL 3, first on PATH (macOS's own openssl is LibreSSL, which has no -legacy), as the runner's Homebrew one is.
-o="$(brew --prefix openssl@3 2>/dev/null)/bin/openssl"; [ -x "$o" ] || o=$(command -v openssl)
+o="$(brew --prefix openssl@3 2>/dev/null || true)/bin/openssl"; [ -x "$o" ] || o=$(command -v openssl)
 ln -s "$o" "$T/bin/openssl"; PATH="$T/bin:$PATH"
 check "OpenSSL 3 for these tests" "$(openssl version)" '^OpenSSL 3'
 cat > "$T/bin/security" <<'STUB'
