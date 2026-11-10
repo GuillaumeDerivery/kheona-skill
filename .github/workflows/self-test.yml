@@ -2,7 +2,8 @@
 # not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # Trigger: every pull request and push to main
 # Purpose: run the shared deploy and delivery from callers inside this repository, so their paths are tested before each release
-# Effect: none: dry_run stops before anything is built, pushed, rolled out, signed or uploaded
+# Effect: none: dry_run stops before anything is built, pushed, rolled out, signed or uploaded. The deploy runs to the
+# build; the delivery runs each lane to signing (the secrets check reports instead of failing; iOS on Linux).
 name: Self-test
 
 on:
