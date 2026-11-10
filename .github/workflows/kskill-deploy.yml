@@ -53,8 +53,6 @@
 #     cronjobs          string[] []        cron jobs to set (container name = cron job name)
 #     targets           array    [{namespace, deployments, cronjobs}] from the three keys above; use it instead
 #                                when one environment spans several namespaces
-#     healthcheckUrl    string   ""  off when empty; else must answer 2xx after the rollout, and a JSON `commit`
-#                                    must be this SHA
 #     slackLabel        string   "[Staging][Api]" / "[Prod][Api]"  prefix of the Slack messages
 name: Kheona Skill · CD · Build, push and deploy
 run-name: ${{ startsWith(github.ref, 'refs/tags/') && format('Deploy {0} to prod', github.ref_name) || 'Deploy to staging' }}
@@ -130,7 +128,6 @@ jobs:
       build-args: ${{ steps.read.outputs.build-args }}
       rollout-timeout: ${{ steps.read.outputs.rollout-timeout }}
       environment-variable: ${{ steps.read.outputs.environment-variable }}
-      healthcheck-url: ${{ steps.read.outputs.healthcheck-url }}
       slack-label: ${{ steps.read.outputs.slack-label }}
       aws-role-arn: ${{ steps.read.outputs.aws-role-arn }}
     steps:
@@ -249,8 +246,7 @@ jobs:
           [[ "$timeout" =~ ^[0-9]+[smh]$ ]] || { echo "::error::workflows.cd.rolloutTimeout is invalid ('$timeout')."; bad=1; }
           envvar=$(jq -r '.workflows.cd.environmentVariable // empty' "$f")
           [ -z "$envvar" ] || [[ "$envvar" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo "::error::workflows.cd.environmentVariable is invalid ('$envvar')."; bad=1; }
-          health=$(get healthcheckUrl)
-          [ -z "$health" ] || [[ "$health" =~ ^https?://[^[:space:]]+$ ]] || { echo "::error::workflows.cd.$env.healthcheckUrl is not an http(s) URL."; bad=1; }
+          [ -z "$(get healthcheckUrl)" ] || echo "::warning::workflows.cd.$env.healthcheckUrl is retired and ignored: the deploy reads the running image back from the cluster."
           if [ "$env" = prod ]; then default_label='[Prod][Api]'; else default_label='[Staging][Api]'; fi
           label=$(get slackLabel); label="${label:-$default_label}"
           [ "$bad" = 0 ] || exit 1
@@ -266,7 +262,6 @@ jobs:
           out build-args "$build_args"
           out rollout-timeout "$timeout"
           out environment-variable "$envvar"
-          out healthcheck-url "$health"
           out slack-label "$label"
           out aws-role-arn "$(jq -r --arg e "$env" '.workflows.cd[$e].awsRoleArn // empty' "$f")"
 
@@ -437,7 +432,6 @@ jobs:
           environment-name: ${{ needs.plan.outputs.environment }}
           environment-variable: ${{ needs.plan.outputs.environment-variable }}
           rollout-timeout: ${{ needs.plan.outputs.rollout-timeout }}
-          healthcheck-url: ${{ needs.plan.outputs.healthcheck-url }}
           image-digest: ${{ needs.image.outputs.digest }}
           version: ${{ needs.plan.outputs.version }}
 

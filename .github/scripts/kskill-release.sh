@@ -87,7 +87,6 @@ targets_markdown() {
           "- **Image** `\($p.ecrRepository)` (AWS `\($p.region)`), EKS cluster `\($p.cluster)`, by digest" end),
           (($p.targets // [{namespace: $p.namespace, deployments: $p.deployments, cronjobs: $p.cronjobs}])[]
             | "- Namespace `\(.namespace)`: \([((.deployments // [])[] | "deployment `\(.)`"), ((.cronjobs // [])[] | "cron job `\(.)`")] | join(", "))"),
-          (if ($p.healthcheckUrl // "") != "" then "- Health check `\($p.healthcheckUrl)` must report commit `\($s)`" else empty end),
           "- Deployed by `Kheona Skill · CD · Build, push and deploy` when the version tag is pushed, after the release checks and the full gate."
         end' <<<"$json"
   fi

@@ -57,7 +57,7 @@ jobs:
   # with lib on lib's exact version (kskill-align-lib-versions.mjs, then the kskill-check-lib-versions.mjs parity
   # check); build and test. On failure, when secret CLAUDE_CODE_OAUTH_TOKEN is set, Claude Code adapts the
   # project from lib's CHANGELOG.md and docs/, then build and test run again. The PR
-  # `chore(deps): bump lib to <tag>` (branch chore/bump-lib) is opened and pushed with the App token so
+  # `fix(deps): bump lib to <tag>` (branch chore/bump-lib) is opened and pushed with the App token so
   # `Kheona Skill · PR` runs on it; a draft carrying the log tail when it still fails. Labelled `automerge` only
   # when it passed without Claude's changes AND the lib major did not change; anything else waits for a person.
   # It never pushes to the default branch and never commits a credential (staged GitHub URLs are checked).
@@ -304,18 +304,18 @@ jobs:
             echo "::error::A GitHub URL with credentials is staged in: $(echo "$leaks" | tr '\n' ' '). Nothing was committed."
             exit 1
           fi
-          git commit -m "chore(deps): bump lib to $TAG"
+          git commit -m "fix(deps): bump lib to $TAG"
           # The App token named in the push itself: Claude Code's step leaves git configured with its own (read-only)
           # token, which a plain `git push origin` would use (403). No header or helper of another step takes part.
           git -c http.https://github.com/.extraheader= -c credential.helper= \
             push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$BRANCH"
           if [ "$(gh pr list --head "$BRANCH" --state open --json number --jq length)" != "0" ]; then
-            gh pr edit "$BRANCH" --title "chore(deps): bump lib to $TAG" --body-file "$RUNNER_TEMP/pr-body.md"
+            gh pr edit "$BRANCH" --title "fix(deps): bump lib to $TAG" --body-file "$RUNNER_TEMP/pr-body.md"
             if [ "$passed" = "true" ]; then gh pr ready "$BRANCH" || true; else gh pr ready "$BRANCH" --undo || true; fi
           else
             draft=""; if [ "$passed" != "true" ]; then draft="--draft"; fi
             # shellcheck disable=SC2086 # why: empty or one flag, on purpose
-            gh pr create --base "$BASE" --head "$BRANCH" $draft --title "chore(deps): bump lib to $TAG" --body-file "$RUNNER_TEMP/pr-body.md"
+            gh pr create --base "$BASE" --head "$BRANCH" $draft --title "fix(deps): bump lib to $TAG" --body-file "$RUNNER_TEMP/pr-body.md"
           fi
           if [ "$passed" = "true" ] && [ "$adapted" != "true" ] && [ "$SAME_MAJOR" = "true" ]; then
             gh label create automerge --color 0E8A16 --description "Merged by Kheona Skill · PR once CI passes" 2>/dev/null || true
@@ -1327,7 +1327,7 @@ jobs:
             if git ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then git add -- "$f"; fi
           done
           git diff --cached --stat
-          git commit -m "chore(deps): Flutter SDK $OLD → $NEW" \
+          git commit -m "fix(deps): Flutter SDK $OLD → $NEW" \
             -m "Opened by kskill-inbox.yml (refresh-flutter): the latest stable in Flutter's release feed. The pin and the lockfiles only."
           # Force-push: the plan job only gets here when every commit on the branch is this job's.
           git push --force origin "$BRANCH"
@@ -1431,7 +1431,7 @@ jobs:
             printf '\n\n(Truncated: the full text is in the run summary.)\n' >> "$RUNNER_TEMP/pr-body.md"
           fi
           cat "$RUNNER_TEMP/pr-body.full.md" >> "$GITHUB_STEP_SUMMARY"
-          title="chore(deps): Flutter SDK $OLD → $NEW"
+          title="fix(deps): Flutter SDK $OLD → $NEW"
           if [ "$(gh pr list --head "$BRANCH" --state open --json number --jq length)" != "0" ]; then
             gh pr edit "$BRANCH" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md"
             if [ "$passed" = true ]; then gh pr ready "$BRANCH" || true; else gh pr ready "$BRANCH" --undo || true; fi

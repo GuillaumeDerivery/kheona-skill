@@ -56,10 +56,6 @@ inputs:
     description: How long each deployment may take to become ready (kubectl duration).
     required: false
     default: 5m
-  healthcheck-url:
-    description: When set, a URL that must answer 2xx after the rollout; a JSON `commit` field must equal the SHA.
-    required: false
-    default: ''
   image-digest:
     description: When set (sha256:...), deploy this image of the repository and build nothing (a rollback).
     required: false
@@ -348,37 +344,3 @@ runs:
           echo "::error::The cluster does not run the image this job set (${IMAGE#*@}) for:$failed"
           exit 1
         fi
-
-    # Off unless healthcheck-url is set. Retries for ~2 minutes (DNS, ingress, load-balancer drain). A JSON body
-    # with a `commit` field (lib-based Node services: GET /healthcheck) must name this SHA; without one, a 2xx passes
-    # with a warning. The URL is printed (it is configuration, not a secret).
-    - name: Check the health endpoint
-      if: inputs.healthcheck-url != ''
-      shell: bash
-      env:
-        URL: ${{ inputs.healthcheck-url }}
-      run: |
-        set -uo pipefail
-        last=""
-        for attempt in $(seq 1 12); do
-          if body=$(curl -fsS --max-time 10 "$URL"); then
-            commit=$(jq -r '.commit // empty' <<< "$body" 2>/dev/null || true)
-            if [ -z "$commit" ]; then
-              echo "::warning::$URL answered 2xx but reports no \`commit\`; the running SHA was not confirmed."
-              echo "Health check: $URL answered, no commit reported." >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-            # A full SHA, or an abbreviation of at least 7 characters, of this commit.
-            if [ "${#commit}" -ge 7 ] && [ "${GITHUB_SHA#"$commit"}" != "$GITHUB_SHA" ]; then
-              echo "Health check: $URL reports commit \`$commit\`." >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-            last="reports commit $commit"
-          else
-            last="did not answer 2xx"
-          fi
-          echo "Attempt $attempt: $URL $last; retrying in 10 s."
-          sleep 10
-        done
-        echo "::error::$URL $last (expected commit ${GITHUB_SHA})."
-        exit 1

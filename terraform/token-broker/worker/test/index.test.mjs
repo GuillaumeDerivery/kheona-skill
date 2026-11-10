@@ -25,6 +25,7 @@ const fake = async (url, init = {}) => {
   if (u.includes('/app/installations?')) return ok([{ id: 7, account: { login: 'Owner' } }]);
   if (u.endsWith('/access_tokens')) return ok({ token: 'minted', expires_at: 'later' });
   if (u.endsWith('/installation')) return ok({ id: 7 });
+  if (u.endsWith('/app')) return globalThis.appDown ? new Response('{}', { status: 401 }) : ok({ slug: 'app' });
   if (u.endsWith('/repos/owner/repo')) return ok({ parent: { full_name: 'upstream/repo' } });
   return new Response('{}', { status: 404 });
 };
@@ -75,4 +76,19 @@ test('a key that is not PKCS#8 fails closed and says nothing of it', async () =>
 });
 test('GET and other paths: 404', async () => {
   assert.equal((await handle(new Request('https://b/token'), env, fake, now)).status, 404);
+});
+
+test('GET /health: 200 while GitHub accepts the App key, 503 otherwise, saying nothing of the key', async () => {
+  const health = (e = env) => handle(new Request('https://broker.example.com/health'), e, fake, now);
+  let r = await health();
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { ok: true });
+  globalThis.appDown = true;
+  r = await health();
+  globalThis.appDown = false;
+  assert.equal(r.status, 503);
+  assert.equal((await r.json()).error, 'GitHub 401 on GET /app');
+  r = await health({ ...env, KSKILL_APP_PRIVATE_KEY: 'nope' });
+  assert.equal(r.status, 503);
+  assert.equal((await r.json()).error, 'the App key must be PKCS#8');
 });
