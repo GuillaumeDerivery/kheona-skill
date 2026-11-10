@@ -12,8 +12,9 @@
 #   - a dispatch on main: a test build, named after the next patch (v1.4.0 released: 1.4.1, kskill-build-name.sh); a
 #     test build of a commit a release tag points at is refused.
 #   - anything else: refused. No pull_request trigger, so a PR or a fork can never reach it.
-#   - dry_run (kheona-skill's self-test, from a pull request too): the release check and the settings, then stops:
-#     no gate, nothing signed or uploaded.
+#   - dry_run (kheona-skill's self-test, from a pull request too): the release check, the settings, then each lane up
+#     to signing (checkout, the secrets check, which only reports, the build number and name), then stops: no gate, no
+#     toolchain, nothing built, signed or uploaded. Both lanes run on Linux then: no macOS minutes.
 # Both store lanes `needs:` the repository's gate, `Kheona Skill · CI`, run in full inside this run.
 # Never: commits back, looks a build number up from a store, carries a paths-ignore.
 #
@@ -63,7 +64,7 @@ on:
         type: string
         default: ''
       dry_run:
-        description: The release check and the settings only, from any ref, a pull request's included; nothing signed or uploaded (kheona-skill's self-test).
+        description: The release check, the settings and each lane up to signing, from any ref, a pull request's included; no gate, nothing built, signed or uploaded (kheona-skill's self-test).
         type: boolean
         default: false
     secrets:
@@ -253,7 +254,10 @@ jobs:
   android:
     name: Android → Google Play
     needs: [config, ci]
-    if: needs.config.outputs.android == 'true' && !inputs.dry_run
+    # a dry run skips the gate: the lane then runs on a skipped `ci`, up to signing.
+    if: >-
+      !cancelled() && needs.config.outputs.android == 'true'
+      && (needs.ci.result == 'success' || (inputs.dry_run && needs.ci.result == 'skipped'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -281,6 +285,7 @@ jobs:
           CM_KEY_PASSWORD: ${{ secrets.CM_KEY_PASSWORD }}
           PLAY_STORE_JSON_KEY_BASE64: ${{ secrets.PLAY_STORE_JSON_KEY_BASE64 }}
           REPO: ${{ github.repository }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           missing=()
           for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD PLAY_STORE_JSON_KEY_BASE64; do
@@ -291,7 +296,9 @@ jobs:
               missing+=("$name")
             fi
           done
-          if [ ${#missing[@]} -gt 0 ]; then
+          if [ ${#missing[@]} -gt 0 ] && [ "$DRY_RUN" = true ]; then
+            echo "::notice::Dry run: a delivery would stop here, missing ${missing[*]}."
+          elif [ ${#missing[@]} -gt 0 ]; then
             echo "::error::Missing repository secret(s): ${missing[*]}. Set them with: gh secret set <NAME> --repo $REPO"
             exit 1
           fi
@@ -305,16 +312,28 @@ jobs:
       # The release's version, or for a test build the next patch (a store closes a released version). A lane that
       # does not pass BUILD_NAME on builds pubspec.yaml's version, which the store refuses once that version shipped.
       - name: Derive the build name
+        # kheona-skill's own release commit is tagged, which a test build refuses: a dry run reports it and goes on.
+        continue-on-error: ${{ inputs.dry_run }}
         env:
           VERSION: ${{ needs.config.outputs.version }}
         run: |
           bash "$KSKILL_HOME/.github/scripts/kskill-build-name.sh"
           grep -q BUILD_NAME android/fastlane/Fastfile || echo "::warning::android/fastlane/Fastfile never reads BUILD_NAME: the build is named after pubspec.yaml's version. Pass --build-name \"\$BUILD_NAME\" to flutter build."
 
+      # A dry run ends here, before the toolchain, the keystore and the build: what came before is the delivery's own
+      # wiring, what comes after needs the app and its signing secrets.
+      - name: Stop here on a dry run
+        if: inputs.dry_run
+        env:
+          LANE: ${{ needs.config.outputs.android_lane }}
+        run: |
+          echo "Dry run, Android lane $LANE stops before signing at build ${BUILD_NUMBER:-?} (${BUILD_NAME:-?}): nothing built, signed or uploaded."
+
       # The runner's disk is ~95 % full after a release build, and the post-job cache saves then fail the job with
       # "No space left on device" after the upload succeeded. The image's .NET, GHC, CodeQL, Swift and Boost are not
       # used here (the Android SDK is kept).
       - name: Free disk space
+        if: ${{ !inputs.dry_run }}
         run: |
           df -h /
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift
@@ -322,6 +341,7 @@ jobs:
           df -h /
 
       - name: Set up Flutter
+        if: ${{ !inputs.dry_run }}
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version-file: .fvmrc
@@ -329,24 +349,28 @@ jobs:
           cache: true
 
       - name: Set up Java
+        if: ${{ !inputs.dry_run }}
         uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: ${{ needs.config.outputs.java }}
 
       - name: Set up Ruby
+        if: ${{ !inputs.dry_run }}
         uses: ruby/setup-ruby@e1bd6146574da5e0795075b5319b300edb30c5b0 # v1.333.0
         with:
           ruby-version: ${{ needs.config.outputs.ruby }}
           bundler-cache: false
 
       - name: Install fastlane
+        if: ${{ !inputs.dry_run }}
         run: gem install fastlane -N -v "$FASTLANE_VERSION"
 
       # Flutter's template gradle.properties lets the Gradle and Kotlin daemons each take -Xmx8G on a ~7.8 GiB
       # runner, which gets the job OOM-killed mid-build ("The runner has received a shutdown signal").
       # GRADLE_USER_HOME/gradle.properties wins over the project's file, so this caps CI only.
       - name: Cap Gradle memory for the runner
+        if: ${{ !inputs.dry_run }}
         run: |
           mkdir -p ~/.gradle
           cat > ~/.gradle/gradle.properties <<'PROPS'
@@ -359,11 +383,13 @@ jobs:
           cat ~/.gradle/gradle.properties
 
       - name: Install dependencies
+        if: ${{ !inputs.dry_run }}
         run: flutter pub get --enforce-lockfile
 
       # Dependencies change only with the build files: a content key. The task-output cache must absorb every
       # build, and actions/cache only saves on a key miss: a run-id key, restored from the newest previous one.
       - name: Cache Gradle dependencies
+        if: ${{ !inputs.dry_run }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -376,6 +402,7 @@ jobs:
             ${{ runner.os }}-gradle-deps-
 
       - name: Cache the Gradle build cache
+        if: ${{ !inputs.dry_run }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.gradle/caches/build-cache-1
@@ -385,12 +412,14 @@ jobs:
 
       # A plugin's native build needs CMake, which the SDK manager otherwise re-installs on every run.
       - name: Cache the Android SDK CMake
+        if: ${{ !inputs.dry_run }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /usr/local/lib/android/sdk/cmake
           key: ${{ runner.os }}-android-cmake-3.22.1
 
       - name: Decode the keystore
+        if: ${{ !inputs.dry_run }}
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
@@ -401,6 +430,7 @@ jobs:
           echo "CM_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
 
       - name: Decode the Play Console key
+        if: ${{ !inputs.dry_run }}
         env:
           PLAY_STORE_JSON_KEY_BASE64: ${{ secrets.PLAY_STORE_JSON_KEY_BASE64 }}
         run: |
@@ -412,6 +442,7 @@ jobs:
 
       # a build that dies silently mid-step is resource exhaustion far more often than anything else.
       - name: Print resources before the build
+        if: ${{ !inputs.dry_run }}
         run: |
           nproc || true
           free -h || true
@@ -419,6 +450,7 @@ jobs:
 
       # Both names reach the lane, the new secret winning, so an app reading either keeps signing during the rename.
       - name: Build and upload to Google Play
+        if: ${{ !inputs.dry_run }}
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || secrets.CM_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || secrets.CM_KEY_ALIAS }}
@@ -431,7 +463,7 @@ jobs:
         run: cd android && fastlane "$LANE"
 
       - name: Print resources after the build
-        if: always()
+        if: always() && !inputs.dry_run
         run: |
           free -h || true
           df -h /
@@ -439,7 +471,7 @@ jobs:
       # same job as the build, whose output disappears with the runner. Not always(): a failed build has
       # nothing worth uploading.
       - name: Upload debug symbols to Sentry
-        if: success() && needs.config.outputs.sentry == 'true'
+        if: success() && needs.config.outputs.sentry == 'true' && !inputs.dry_run
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           KSKILL_SENTRY_ORG: ${{ needs.config.outputs.sentry_org }}
@@ -449,11 +481,11 @@ jobs:
         run: bash "$KSKILL_HOME/.github/scripts/kskill-flutter-sentry-upload.sh"
 
       - name: Report what shipped
-        if: success()
+        if: success() && !inputs.dry_run
         run: bash "$KSKILL_HOME/.github/scripts/kskill-flutter-report-shipped.sh" android
 
       - name: Keep the App Bundle
-        if: success()
+        if: success() && !inputs.dry_run
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: app-release-aab
@@ -464,8 +496,11 @@ jobs:
   ios:
     name: iOS → TestFlight
     needs: [config, ci]
-    if: needs.config.outputs.ios == 'true' && !inputs.dry_run
-    runs-on: macos-26
+    if: >-
+      !cancelled() && needs.config.outputs.ios == 'true'
+      && (needs.ci.result == 'success' || (inputs.dry_run && needs.ci.result == 'skipped'))
+    # a dry run stops before anything needs a Mac: Linux, at a tenth of the minutes.
+    runs-on: ${{ inputs.dry_run && 'ubuntu-24.04' || 'macos-26' }}
     # macOS bills at 10x: this bounds what one hung run costs. The lane's real work is ~20-30 minutes cold.
     timeout-minutes: 40
     permissions:
@@ -488,12 +523,15 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_API_KEY_BASE64: ${{ secrets.ASC_API_KEY_BASE64 }}
           REPO: ${{ github.repository }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           missing=()
           for name in IOS_DIST_CERTIFICATE_P12_BASE64 IOS_DIST_CERTIFICATE_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_BASE64; do
             [ -n "${!name}" ] || missing+=("$name")
           done
-          if [ ${#missing[@]} -gt 0 ]; then
+          if [ ${#missing[@]} -gt 0 ] && [ "$DRY_RUN" = true ]; then
+            echo "::notice::Dry run: a delivery would stop here, missing ${missing[*]}."
+          elif [ ${#missing[@]} -gt 0 ]; then
             echo "::error::Missing repository secret(s): ${missing[*]}. Set them with: gh secret set <NAME> --repo $REPO"
             exit 1
           fi
@@ -501,6 +539,7 @@ jobs:
       # The image is pinned, the Xcode inside it is not: GitHub moves the default during an image's lifetime, and
       # signing breaks with an error that never names Xcode. Selecting it makes that day a .kheona.json change.
       - name: Select Xcode
+        if: ${{ !inputs.dry_run }}
         env:
           XCODE_VERSION: ${{ needs.config.outputs.xcode }}
         run: |
@@ -523,17 +562,27 @@ jobs:
           BUILD_NUMBER_OVERRIDE: ${{ vars.BUILD_NUMBER_OVERRIDE }}
           KSKILL_BUILD_NUMBER_OFFSET: ${{ needs.config.outputs.offset }}
         run: bash "$KSKILL_HOME/.github/scripts/kskill-build-number.sh"
+
+      # The release's version, or for a test build the next patch (a store closes a released version). A lane that
       # does not pass BUILD_NAME on builds pubspec.yaml's version, which the store refuses once that version shipped.
       - name: Derive the build name
+        # kheona-skill's own release commit is tagged, which a test build refuses: a dry run reports it and goes on.
+        continue-on-error: ${{ inputs.dry_run }}
         env:
           VERSION: ${{ needs.config.outputs.version }}
         run: |
           bash "$KSKILL_HOME/.github/scripts/kskill-build-name.sh"
           grep -q BUILD_NAME ios/fastlane/Fastfile || echo "::warning::ios/fastlane/Fastfile never reads BUILD_NAME: the build is named after pubspec.yaml's version. Pass --build-name \"\$BUILD_NAME\" to flutter build."
 
-      # The release's version, or for a test build the next patch (a store closes a released version). A lane that
+      - name: Stop here on a dry run
+        if: inputs.dry_run
+        env:
+          LANE: ${{ needs.config.outputs.ios_lane }}
+        run: |
+          echo "Dry run, iOS lane $LANE stops before signing at build ${BUILD_NUMBER:-?} (${BUILD_NAME:-?}): nothing built, signed or uploaded."
 
       - name: Set up Flutter
+        if: ${{ !inputs.dry_run }}
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version-file: .fvmrc
@@ -541,15 +590,18 @@ jobs:
           cache: true
 
       - name: Install fastlane
+        if: ${{ !inputs.dry_run }}
         run: |
           gem install fastlane -N -v "$FASTLANE_VERSION"
           fastlane --version | tail -n 3
 
       - name: Install dependencies
+        if: ${{ !inputs.dry_run }}
         run: flutter pub get --enforce-lockfile
 
       # GitHub's "Installing an Apple certificate on macOS runners" recipe; the keychain is deleted at the end.
       - name: Import the distribution certificate
+        if: ${{ !inputs.dry_run }}
         env:
           CERTIFICATE_BASE64: ${{ secrets.IOS_DIST_CERTIFICATE_P12_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.IOS_DIST_CERTIFICATE_PASSWORD }}
@@ -575,6 +627,7 @@ jobs:
             || { echo "::error::No 'Apple Distribution' identity in the imported certificate."; exit 1; }
 
       - name: Write the App Store Connect key
+        if: ${{ !inputs.dry_run }}
         env:
           ASC_API_KEY_BASE64: ${{ secrets.ASC_API_KEY_BASE64 }}
         run: |
@@ -585,11 +638,13 @@ jobs:
           echo "ASC_KEY_FILEPATH=$ASC_KEY_PATH" >> "$GITHUB_ENV"
 
       - name: Print resources before the build
+        if: ${{ !inputs.dry_run }}
         run: |
           vm_stat || true
           df -h /
 
       - name: Build and upload to TestFlight
+        if: ${{ !inputs.dry_run }}
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -598,13 +653,13 @@ jobs:
         run: cd ios && fastlane "$LANE"
 
       - name: Print resources after the build
-        if: always()
+        if: always() && !inputs.dry_run
         run: |
           vm_stat || true
           df -h /
 
       - name: Upload debug symbols to Sentry
-        if: success() && needs.config.outputs.sentry == 'true'
+        if: success() && needs.config.outputs.sentry == 'true' && !inputs.dry_run
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           KSKILL_SENTRY_ORG: ${{ needs.config.outputs.sentry_org }}
@@ -614,7 +669,7 @@ jobs:
         run: bash "$KSKILL_HOME/.github/scripts/kskill-flutter-sentry-upload.sh"
 
       - name: Report what shipped
-        if: success()
+        if: success() && !inputs.dry_run
         run: bash "$KSKILL_HOME/.github/scripts/kskill-flutter-report-shipped.sh" ios
 
       # xcodebuild's real error is in gym's log, not the truncated console. upload-artifact does not expand `~`.
@@ -634,5 +689,5 @@ jobs:
           retention-days: 7
 
       - name: Delete the keychain
-        if: always()
+        if: always() && !inputs.dry_run
         run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
