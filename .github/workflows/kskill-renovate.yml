@@ -143,21 +143,33 @@ jobs:
 
       # Renovate's host rules give the read-only token to the preset's and lib's URLs only; git clones the lib
       # submodule through these insteadOf entries (the longest prefix wins over Renovate's own for github.com).
+      # Not in the job of the owner that owns them: there the preset or lib is also a repository Renovate updates, and
+      # the read-only token would replace the owner's for it (listing its PRs fails: integration-unauthorized).
       - name: Hand the tokens to Renovate
         env:
           SHARED: ${{ steps.shared.outputs.token }}
+          OWNER: ${{ matrix.owner }}
         run: |
           [ -n "${KSKILL_LIB_REPO:-}" ] || { echo "::error::Variable KSKILL_LIB_REPO is not set: Renovate cannot read the lib submodule."; exit 1; }
+          lower() { tr '[:upper:]' '[:lower:]' <<<"$1"; }
+          foreign() { [ "$(lower "${1%%/*}")" != "$(lower "$OWNER")" ]; }
+          rules='[]'
+          if foreign "$KSKILL_REPO"; then
+            rules=$(jq -c --arg t "$SHARED" --arg r "$KSKILL_REPO" '. + [{matchHost: "https://api.github.com/repos/\($r)/", hostType: "github", token: $t}]' <<<"$rules")
+          fi
+          if foreign "$KSKILL_LIB_REPO"; then
+            rules=$(jq -c --arg t "$SHARED" --arg r "$KSKILL_LIB_REPO" '. + [{matchHost: "https://api.github.com/repos/\($r)/", hostType: "github", token: $t},
+              {matchHost: "https://github.com/\($r)", hostType: "github", token: $t}]' <<<"$rules")
+          fi
           {
-            echo "RENOVATE_HOST_RULES=$(jq -nc --arg t "$SHARED" --arg preset "$KSKILL_REPO" --arg lib "$KSKILL_LIB_REPO" '[
-              {matchHost: "https://api.github.com/repos/\($preset)/", hostType: "github", token: $t},
-              {matchHost: "https://api.github.com/repos/\($lib)/", hostType: "github", token: $t},
-              {matchHost: "https://github.com/\($lib)", hostType: "github", token: $t}]')"
-            echo "GIT_CONFIG_COUNT=2"
-            echo "GIT_CONFIG_KEY_0=url.https://x-access-token:${SHARED}@github.com/${KSKILL_LIB_REPO}.insteadOf"
-            echo "GIT_CONFIG_VALUE_0=git@github.com:${KSKILL_LIB_REPO}"
-            echo "GIT_CONFIG_KEY_1=url.https://x-access-token:${SHARED}@github.com/${KSKILL_LIB_REPO}.insteadOf"
-            echo "GIT_CONFIG_VALUE_1=https://github.com/${KSKILL_LIB_REPO}"
+            echo "RENOVATE_HOST_RULES=$rules"
+            if foreign "$KSKILL_LIB_REPO"; then
+              echo "GIT_CONFIG_COUNT=2"
+              echo "GIT_CONFIG_KEY_0=url.https://x-access-token:${SHARED}@github.com/${KSKILL_LIB_REPO}.insteadOf"
+              echo "GIT_CONFIG_VALUE_0=git@github.com:${KSKILL_LIB_REPO}"
+              echo "GIT_CONFIG_KEY_1=url.https://x-access-token:${SHARED}@github.com/${KSKILL_LIB_REPO}.insteadOf"
+              echo "GIT_CONFIG_VALUE_1=https://github.com/${KSKILL_LIB_REPO}"
+            fi
           } >> "$GITHUB_ENV"
 
       - name: Run Renovate
