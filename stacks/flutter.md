@@ -154,6 +154,10 @@ Flutter-specific K2.3/K2.4 notes:
   still accepted as a deprecated fallback and still exported to the lane, until every app holds the new secrets.
   Keystores don't expire, but **losing one is unrecoverable** — confirm an off-machine backup exists.
 - iOS: an Apple Distribution certificate imported per run + a profile fetched from App Store Connect.
+  `IOS_DIST_CERTIFICATE_P12_BASE64` is required, `IOS_DIST_CERTIFICATE_PASSWORD` only when the `.p12` has a password
+  (GitHub cannot store an empty secret). Without one, `security import -P ""` takes a Keychain Access export as it is
+  but refuses any OpenSSL-made one (`-legacy` or AES, even unencrypted): the step re-encodes it under a generated
+  password with OpenSSL 3, then imports that.
   **Certificates expire yearly and Apple caps you at 3 active** — record the expiry somewhere visible.
 - App Store Connect API key **role** matters: App Manager fetches an existing profile; Xcode cloud
   signing (`-allowProvisioningUpdates`) needs Admin.

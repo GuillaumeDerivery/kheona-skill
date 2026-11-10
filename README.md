@@ -90,7 +90,7 @@ Set only what the repository uses. A workflow that lacks a required secret fails
 | `ANDROID_KEY_PASSWORD` | Flutter delivery | Yes | The signing key's password. Replaces `CM_KEY_PASSWORD`, still read as a deprecated fallback. |
 | `PLAY_STORE_JSON_KEY_BASE64` | Flutter delivery | Yes | The Google Play service account's JSON key, base64, for the upload. |
 | `IOS_DIST_CERTIFICATE_P12_BASE64` | Flutter delivery | Yes | The Apple distribution certificate, `.p12`, base64. |
-| `IOS_DIST_CERTIFICATE_PASSWORD` | Flutter delivery | Yes | The `.p12`'s password. |
+| `IOS_DIST_CERTIFICATE_PASSWORD` | Flutter delivery | Optional | The `.p12`'s password. Unset for a `.p12` exported without one (GitHub cannot store an empty secret): the delivery imports it with an empty password, re-encoding an OpenSSL-made file first. |
 | `ASC_KEY_ID` | Flutter delivery | Yes | The App Store Connect API key's id. |
 | `ASC_ISSUER_ID` | Flutter delivery | Yes | The App Store Connect issuer id. |
 | `ASC_API_KEY_BASE64` | Flutter delivery | Yes | The App Store Connect API key, `.p8`, base64, for the upload. |

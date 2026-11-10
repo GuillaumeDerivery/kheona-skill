@@ -52,7 +52,8 @@
 #   sentry.url          string  ""      Sentry base URL (e.g. https://de.sentry.io); "" = the CLI default.
 # Secrets: KSKILL_TOKEN_BROKER_URL (passed to the gate), ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
 # ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD (deprecated fallback while a repository still holds the old names:
-# CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD; a new name wins, an old one alone warns), PLAY_STORE_JSON_KEY_BASE64, IOS_DIST_CERTIFICATE_P12_BASE64, IOS_DIST_CERTIFICATE_PASSWORD, ASC_KEY_ID,
+# CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD; a new name wins, an old one alone warns), PLAY_STORE_JSON_KEY_BASE64, IOS_DIST_CERTIFICATE_P12_BASE64, IOS_DIST_CERTIFICATE_PASSWORD (optional: unset = a
+# .p12 exported without a password), ASC_KEY_ID,
 # ASC_ISSUER_ID, ASC_API_KEY_BASE64, SENTRY_AUTH_TOKEN (optional: missing = a warning, symbols not uploaded).
 name: Kheona Skill · Deliver
 
@@ -526,9 +527,13 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           missing=()
-          for name in IOS_DIST_CERTIFICATE_P12_BASE64 IOS_DIST_CERTIFICATE_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_BASE64; do
+          for name in IOS_DIST_CERTIFICATE_P12_BASE64 ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_BASE64; do
             [ -n "${!name}" ] || missing+=("$name")
           done
+          # GitHub cannot store an empty secret: a .p12 exported without a password leaves this one unset.
+          if [ -n "$IOS_DIST_CERTIFICATE_P12_BASE64" ] && [ -z "$IOS_DIST_CERTIFICATE_PASSWORD" ]; then
+            echo "::notice::IOS_DIST_CERTIFICATE_PASSWORD is not set: the .p12 is imported with an empty password."
+          fi
           if [ ${#missing[@]} -gt 0 ] && [ "$DRY_RUN" = true ]; then
             echo "::notice::Dry run: a delivery would stop here, missing ${missing[*]}."
           elif [ ${#missing[@]} -gt 0 ]; then
@@ -616,7 +621,27 @@ jobs:
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERTIFICATE_PATH" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          import_p12() { security import "$1" -P "$2" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"; }
+          if [ -n "$CERTIFICATE_PASSWORD" ]; then
+            import_p12 "$CERTIFICATE_PATH" "$CERTIFICATE_PASSWORD"
+          elif ! import_p12 "$CERTIFICATE_PATH" ""; then
+            # No password: a Keychain Access export imports as it is; OpenSSL's (any algorithm, -legacy or not) does
+            # not, `security` rejects its empty password. Re-encoded under a generated one with OpenSSL 3, it does.
+            echo "Re-encoding the passwordless .p12 under a generated password."
+            OPENSSL="$(brew --prefix openssl@3 2>/dev/null)/bin/openssl"
+            [ -x "$OPENSSL" ] || OPENSSL=openssl
+            "$OPENSSL" version | grep -q '^OpenSSL 3' \
+              || { echo "::error::Re-encoding the .p12 needs OpenSSL 3, found: $("$OPENSSL" version)."; exit 1; }
+            PEM_PATH="$RUNNER_TEMP/distribution.pem"
+            ( umask 077
+              "$OPENSSL" pkcs12 -in "$CERTIFICATE_PATH" -passin pass: -nodes -out "$PEM_PATH" 2>/dev/null \
+                || "$OPENSSL" pkcs12 -legacy -in "$CERTIFICATE_PATH" -passin pass: -nodes -out "$PEM_PATH" 2>/dev/null ) \
+              || { rm -f "$PEM_PATH"; echo "::error::The .p12 does not open with an empty password: set IOS_DIST_CERTIFICATE_PASSWORD to its password."; exit 1; }
+            P12_PASSWORD=$(openssl rand -base64 24); export P12_PASSWORD
+            "$OPENSSL" pkcs12 -export -in "$PEM_PATH" -passout env:P12_PASSWORD -out "$CERTIFICATE_PATH"
+            rm -f "$PEM_PATH"
+            import_p12 "$CERTIFICATE_PATH" "$P12_PASSWORD"
+          fi
           # shellcheck disable=SC2046 # why: one keychain path per word is the intended split
           security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/"//g')
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
