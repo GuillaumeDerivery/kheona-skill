@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.4.0...v2.5.0) (2026-11-10)
+
+
+### Features
+
+* Flutter test builds are named after the next patch; a released commit is refused ([#44](https://github.com/GuillaumeDerivery/kheona-skill/issues/44)) ([12c1325](https://github.com/GuillaumeDerivery/kheona-skill/commit/12c13258501b7d6cc562b7046c3de5d7c2664aff))
+* production runs the image staging tested; APP_VERSION is set at deploy ([#43](https://github.com/GuillaumeDerivery/kheona-skill/issues/43)) ([ebb1453](https://github.com/GuillaumeDerivery/kheona-skill/commit/ebb1453548628771c76ba01b7d8e1147c5ca03ba))
+
 ## [2.4.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.3.2...v2.4.0) (2026-11-10)
 
 
