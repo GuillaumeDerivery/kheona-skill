@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.2.2...v2.3.0) (2026-11-10)
+
+
+### Features
+
+* rule-0 status, conventional PR titles, Renovate reads lib, broker /health ([#33](https://github.com/GuillaumeDerivery/kheona-skill/issues/33)) ([b775a0b](https://github.com/GuillaumeDerivery/kheona-skill/commit/b775a0b914a88e0ef3fcabf0cf27525383d76ce9))
+
 ## [2.2.2](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.2.1...v2.2.2) (2026-11-09)
 
 
