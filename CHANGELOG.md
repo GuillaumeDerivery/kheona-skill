@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.2](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.6.1...v2.6.2) (2026-11-10)
+
+
+### Bug Fixes
+
+* the Claude guard hook checks only what can reach the write ([#53](https://github.com/GuillaumeDerivery/kheona-skill/issues/53)) ([9e46216](https://github.com/GuillaumeDerivery/kheona-skill/commit/9e46216e5c6921a88cda6d08c5c028e61984f3a9))
+
 ## [2.6.1](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.6.0...v2.6.1) (2026-11-10)
 
 
