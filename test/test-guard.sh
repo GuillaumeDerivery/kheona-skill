@@ -37,7 +37,7 @@ check "... the placeholder passes" "$rc" '^0$'
 printf 'commit 6a52a65840a15147e4d7e869390658716c10435f\n' > "$R/a.txt"; git -C "$R" add -A
 out=$(KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" 2>&1); rc=$?
 check "... a commit SHA holding twelve digits passes" "$rc" '^0$'
-printf 'see 123456789012xyz\n' > "$R/a.txt"; git -C "$R" add -A
+printf 'see 1234567%sxyz\n' 89012 > "$R/a.txt"; git -C "$R" add -A
 out=$(KSKILL_GUARD_LIST=$T/list node "$G" --repo "$R" 2>&1); rc=$?
 check "... twelve digits glued to non-hex letters still count" "$rc" '^1$'
 printf 'Terms: SecretCorp\n' > "$T/pr"
