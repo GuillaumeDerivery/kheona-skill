@@ -11,6 +11,8 @@
 #     release and a person with write access. A store build cannot be taken back: an app fixes forward, it never rolls back.
 #   - a dispatch on main: a test build, no version (the build number is still main's commit count).
 #   - anything else: refused. No pull_request trigger, so a PR or a fork can never reach it.
+#   - dry_run (kheona-skill's self-test, from a pull request too): the release check and the settings, then stops:
+#     no gate, nothing signed or uploaded.
 # Both store lanes `needs:` the repository's gate, `Kheona Skill · CI`, run in full inside this run.
 # Never: commits back, looks a build number up from a store, carries a paths-ignore.
 #
@@ -57,6 +59,10 @@ on:
         description: node, python, flutter or infra (written by the setup command).
         type: string
         required: true
+      dry_run:
+        description: The release check and the settings only, from any ref, a pull request's included; nothing signed or uploaded (kheona-skill's self-test).
+        type: boolean
+        default: false
     secrets:
       ANDROID_KEYSTORE_BASE64:
         required: false
@@ -101,7 +107,7 @@ env:
 jobs:
   config:
     name: Read the delivery settings
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' || inputs.dry_run
     runs-on: ubuntu-24.04
     timeout-minutes: 50     # the release check waits up to 45 min for Main on the commit before
     permissions:
@@ -140,8 +146,9 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           ACTOR: ${{ github.triggering_actor }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          if [ "$EVENT_NAME" = push ] && [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ]; then
+          if [ "$EVENT_NAME" = push ] && [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ] && [ "$DRY_RUN" != true ]; then
             echo "::error::A push to $DEFAULT_BRANCH delivers nothing: a release is a version tag; a test build is started by hand."
             exit 1
           fi
@@ -224,7 +231,7 @@ jobs:
   ci:
     name: Run the gate
     needs: config
-    if: needs.config.outputs.enabled == 'true'
+    if: needs.config.outputs.enabled == 'true' && !inputs.dry_run
     uses: ./.github/workflows/kskill-ci.yml
     permissions:
       contents: read
@@ -236,7 +243,7 @@ jobs:
   android:
     name: Android → Google Play
     needs: [config, ci]
-    if: needs.config.outputs.android == 'true'
+    if: needs.config.outputs.android == 'true' && !inputs.dry_run
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -425,7 +432,7 @@ jobs:
   ios:
     name: iOS → TestFlight
     needs: [config, ci]
-    if: needs.config.outputs.ios == 'true'
+    if: needs.config.outputs.ios == 'true' && !inputs.dry_run
     runs-on: macos-26
     # macOS bills at 10x: this bounds what one hung run costs. The lane's real work is ~20-30 minutes cold.
     timeout-minutes: 40

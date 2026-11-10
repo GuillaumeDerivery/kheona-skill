@@ -1,8 +1,8 @@
 # This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
 # not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # Trigger: every pull request and push to main
-# Purpose: run the shared deploy from a caller inside this repository, so its path is tested before each release
-# Effect: none: dry_run stops before anything is built, pushed or rolled out
+# Purpose: run the shared deploy and delivery from callers inside this repository, so their paths are tested before each release
+# Effect: none: dry_run stops before anything is built, pushed, rolled out, signed or uploaded
 name: Self-test
 
 on:
@@ -23,4 +23,15 @@ jobs:
     with:
       stack: node
       gate: false
+      dry_run: true
+
+  deliver-dry-run:
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      pull-requests: read
+    uses: ./.github/workflows/kskill-deliver-flutter.yml
+    with:
+      stack: flutter
       dry_run: true

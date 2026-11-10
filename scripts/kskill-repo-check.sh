@@ -15,7 +15,9 @@
 #   6. a Flutter app reads build defines and dotenv only in lib/core/config/: a warning;
 #   7. the local `.env` rules (off with `workflows.ci.skip.envFiles` and a reason);
 #   8. git-crypt covers every secret file (off with `workflows.ci.skip.gitCrypt` and a reason);
-#   9. no MongoDB connection string in the repository (off with `workflows.ci.skip.mongoUri` and a reason).
+#   9. no MongoDB connection string in the repository (off with `workflows.ci.skip.mongoUri` and a reason);
+#  10. delivery: where kskill-deliver.yml delivers, each enabled store lane's Fastfile and Appfile exist and the
+#      Fastfile defines the lane .kheona.json names (the store secrets are the setup command's: names only, GitHub's).
 # Exit 1 on any failure.
 # shellcheck disable=SC2016  # why: the single-quoted strings are jq programs; their $names are jq variables
 set -uo pipefail
@@ -314,12 +316,32 @@ if [ -z "$mongo_skip" ]; then
     | grep -vE '(^|/)(package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|pubspec\.lock|Pipfile\.lock|poetry\.lock|composer\.lock)$' | sort)
 fi
 
+# 10. Delivery: the app-side hook kskill-deliver-flutter.yml runs, `cd <platform> && fastlane <lane>`.
+if [ -f .github/workflows/kskill-deliver.yml ] && [ "$(cfg .workflows.cd.enabled)" != false ]; then
+  for platform in android ios; do
+    [ "$(cfg ".workflows.cd.$platform.enabled")" = false ] && continue
+    lane=$(cfg ".workflows.cd.$platform.lane"); lane=${lane:-beta}
+    ff="$platform/fastlane/Fastfile"
+    if [ ! -f "$ff" ]; then
+      rec --arg p "$ff" --arg l "$lane" '{kind: "delivery", path: $p, lane: $l, problem: "missing"}'
+      fail "$ff" "missing: kskill-deliver.yml runs \`cd $platform && fastlane $lane\` (workflows.cd.$platform.enabled false turns the lane off)"
+    elif ! grep -qE "^[[:space:]]*lane[[:space:]]+:$lane([^A-Za-z0-9_]|$)" "$ff"; then
+      rec --arg p "$ff" --arg l "$lane" '{kind: "delivery", path: $p, lane: $l, problem: "no lane"}'
+      fail "$ff" "defines no lane :$lane, the one .kheona.json workflows.cd.$platform.lane names (default beta)"
+    fi
+    if [ ! -f "$platform/fastlane/Appfile" ]; then
+      rec --arg p "$platform/fastlane/Appfile" --arg l "$lane" '{kind: "delivery", path: $p, lane: $l, problem: "missing"}'
+      fail "$platform/fastlane/Appfile" "missing: it names the app's identifier (and the team or the Play key) the lane uses"
+    fi
+  done
+fi
+
 if [ "$JSON" = true ]; then
   jq -s --argjson ok "$([ "$FAIL" = 0 ] && echo true || echo false)" '
     def of($k): map(select(.kind == $k) | del(.kind));
     { ok: $ok, kheonaJson: (map(select(.kind == "kheona"))[0].state // "absent"),
       callers: of("callers"), undeclared: (of("undeclared") | map(.path)), pat: (of("pat") | map(.path)),
-      dsn: (of("dsn") | map(.path)), config: (of("config") | map(.path)), env: of("env"), gitCrypt: of("gitcrypt"), mongo: of("mongo"), jobs: (of("job") | map(.job)),
+      dsn: (of("dsn") | map(.path)), config: (of("config") | map(.path)), env: of("env"), gitCrypt: of("gitcrypt"), mongo: of("mongo"), delivery: of("delivery"), jobs: (of("job") | map(.job)),
       errors: of("error"), warnings: of("warning") }' "$EVENTS"
 elif [ "$FAIL" = 0 ]; then
   echo "kheona-skill repository check: OK"
