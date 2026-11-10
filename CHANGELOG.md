@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.3.2...v2.4.0) (2026-11-10)
+
+
+### Features
+
+* the guard runs locally, as git hooks and a Claude Code hook ([#42](https://github.com/GuillaumeDerivery/kheona-skill/issues/42)) ([1239657](https://github.com/GuillaumeDerivery/kheona-skill/commit/1239657d4460545b9ea65fd53372f7c4daa35909))
+* the setup command, the delivery rule, the delivery dry run ([#40](https://github.com/GuillaumeDerivery/kheona-skill/issues/40)) ([869804f](https://github.com/GuillaumeDerivery/kheona-skill/commit/869804fe21650af52efa8a6907f9a56d488469bb))
+
 ## [2.3.2](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.3.1...v2.3.2) (2026-11-10)
 
 
