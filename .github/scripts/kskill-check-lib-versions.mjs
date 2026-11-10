@@ -6,7 +6,7 @@
 //
 // For every package that <lib>/package.json declares (dependencies, devDependencies, peerDependencies) AND that
 // both lockfiles resolve at the top level, the version in ./package-lock.json must equal the one in
-// <lib>/package-lock.json.
+// <lib>/package-lock.json. A package lib takes from git, a URL or a path has no registry version: not compared.
 //
 // It reads the two lockfiles, not the two node_modules trees: `npm ci` in the root treats the file:-linked lib
 // as part of its own tree and prunes <lib>/node_modules down to a handful of entries, so comparing the
@@ -33,7 +33,9 @@ for (const tree of ['.', LIB]) {
 const rootPackages = readJson('package-lock.json').packages ?? {};
 const libPackages = readJson(join(LIB, 'package-lock.json')).packages ?? {};
 const libManifest = readJson(join(LIB, 'package.json'));
-const declared = new Set([...Object.keys(libManifest.dependencies ?? {}), ...Object.keys(libManifest.devDependencies ?? {}), ...Object.keys(libManifest.peerDependencies ?? {})]);
+const libSpecs = { ...libManifest.peerDependencies, ...libManifest.devDependencies, ...libManifest.dependencies };
+const fromRegistry = (spec) => !/^(git[+:]|github:|gitlab:|bitbucket:|https?:|file:|link:|workspace:)|^[\w.-]+\/[\w.-]+(#.*)?$/.test(String(spec));
+const declared = new Set(Object.keys(libSpecs).filter((name) => fromRegistry(libSpecs[name])));
 
 const mismatches = [];
 let compared = 0;
