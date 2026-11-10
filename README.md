@@ -85,9 +85,9 @@ Set only what the repository uses. A workflow that lacks a required secret fails
 | `SLACK_WEBHOOK_URL` | Deploy | Optional | Announces each deploy's start and result in a Slack channel. |
 | `SENTRY_AUTH_TOKEN` | Inbox, Flutter delivery | Optional | Reads and updates Sentry issues for the triage (`event:read`, `event:write`, `project:read`, `org:read`), and uploads an app's debug symbols. |
 | `ANDROID_KEYSTORE_BASE64` | Flutter delivery | Yes | The Android signing keystore, base64. |
-| `CM_KEYSTORE_PASSWORD` | Flutter delivery | Yes | The keystore's password. |
-| `CM_KEY_ALIAS` | Flutter delivery | Yes | The signing key's alias in the keystore. |
-| `CM_KEY_PASSWORD` | Flutter delivery | Yes | The signing key's password. |
+| `ANDROID_KEYSTORE_PASSWORD` | Flutter delivery | Yes | The keystore's password. Replaces `CM_KEYSTORE_PASSWORD`, still read as a deprecated fallback. |
+| `ANDROID_KEY_ALIAS` | Flutter delivery | Yes | The signing key's alias in the keystore. Replaces `CM_KEY_ALIAS`, still read as a deprecated fallback. |
+| `ANDROID_KEY_PASSWORD` | Flutter delivery | Yes | The signing key's password. Replaces `CM_KEY_PASSWORD`, still read as a deprecated fallback. |
 | `PLAY_STORE_JSON_KEY_BASE64` | Flutter delivery | Yes | The Google Play service account's JSON key, base64, for the upload. |
 | `IOS_DIST_CERTIFICATE_P12_BASE64` | Flutter delivery | Yes | The Apple distribution certificate, `.p12`, base64. |
 | `IOS_DIST_CERTIFICATE_PASSWORD` | Flutter delivery | Yes | The `.p12`'s password. |

@@ -96,7 +96,7 @@ else todo "variable KSKILL_TOKEN_BROKER_URL: set KSKILL_TOKEN_BROKER_URL and --a
 have=$(gh secret list --repo "$REPO" --json name --jq '[.[].name] | join(" ")' 2>/dev/null || echo '?')
 need=()
 if [ -f "$DIR/.github/workflows/kskill-deliver.yml" ] && [ "$(cfg .workflows.cd.enabled)" != false ]; then
-  [ "$(cfg .workflows.cd.android.enabled)" = false ] || need+=(ANDROID_KEYSTORE_BASE64 CM_KEYSTORE_PASSWORD CM_KEY_ALIAS CM_KEY_PASSWORD PLAY_STORE_JSON_KEY_BASE64)
+  [ "$(cfg .workflows.cd.android.enabled)" = false ] || need+=(ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD PLAY_STORE_JSON_KEY_BASE64)
   [ "$(cfg .workflows.cd.ios.enabled)" = false ] || need+=(IOS_DIST_CERTIFICATE_P12_BASE64 IOS_DIST_CERTIFICATE_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_BASE64)
 fi
 if [ -f "$DIR/.github/workflows/kskill-deploy.yml" ]; then
@@ -105,12 +105,14 @@ if [ -f "$DIR/.github/workflows/kskill-deploy.yml" ]; then
     [ "$t" = object ] && [ -z "$(cfg ".workflows.cd.$env.awsRoleArn")" ] && need+=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY)
   done
 fi
+# the Codemagic-era name of a signing secret, still accepted by the delivery: the new one takes the same value.
+old() { [[ " $have " != *" $1 "* ]] || echo " (the same value as $1, its old name, deleted once this one is set)"; }
 hint() {
   case $1 in
     ANDROID_KEYSTORE_BASE64) echo "the Android upload keystore (.jks), a file: it is base64-encoded for you" ;;
-    CM_KEYSTORE_PASSWORD) echo "the keystore's password" ;;
-    CM_KEY_ALIAS) echo "the upload key's alias in the keystore" ;;
-    CM_KEY_PASSWORD) echo "the upload key's password" ;;
+    ANDROID_KEYSTORE_PASSWORD) echo "the keystore's password$(old CM_KEYSTORE_PASSWORD)" ;;
+    ANDROID_KEY_ALIAS) echo "the upload key's alias in the keystore$(old CM_KEY_ALIAS)" ;;
+    ANDROID_KEY_PASSWORD) echo "the upload key's password$(old CM_KEY_PASSWORD)" ;;
     PLAY_STORE_JSON_KEY_BASE64) echo "a Google Play service account's JSON key with release rights on the app, a file" ;;
     IOS_DIST_CERTIFICATE_P12_BASE64) echo "an Apple Distribution certificate and its private key exported as .p12, a file" ;;
     IOS_DIST_CERTIFICATE_PASSWORD) echo "the .p12's password" ;;
