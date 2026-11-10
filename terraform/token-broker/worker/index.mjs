@@ -5,7 +5,7 @@
 //
 // POST /token   Authorization: Bearer <OIDC token>, body {repository?, shared?, permissions?}  -> {token, expiresAt}
 // POST /tokens  Authorization: Bearer <OIDC token>  -> {tokens: {"<owner>": "<token>"}}  (one per installation, policy.acrossOwners only)
-// GET  /health  -> 200 {ok: true} when the App key signs a JWT GitHub accepts (GET /app), else 503 {ok: false, error}.
+// GET  /healthcheck -> 200 {ok: true} when the App key signs a JWT GitHub accepts (GET /app), else 503 {ok: false, error}.
 //               No identity needed and nothing minted: the doctor polls it.
 //
 // Env: POLICY (JSON, below), KSKILL_APP_ID, KSKILL_APP_PRIVATE_KEY (PKCS#8 PEM, a Worker secret, never in Terraform).
@@ -82,7 +82,7 @@ async function gh(fetchImpl, path, token, init = {}) {
 export async function handle(request, env, fetchImpl = fetch, now = Math.floor(Date.now() / 1000)) {
   try {
     const { pathname } = new URL(request.url);
-    if (request.method === 'GET' && pathname === '/health') {
+    if (request.method === 'GET' && pathname === '/healthcheck') {
       try {
         await gh(fetchImpl, '/app', await appJwt(env, now));
         return json(200, { ok: true });

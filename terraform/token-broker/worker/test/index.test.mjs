@@ -78,8 +78,8 @@ test('GET and other paths: 404', async () => {
   assert.equal((await handle(new Request('https://b/token'), env, fake, now)).status, 404);
 });
 
-test('GET /health: 200 while GitHub accepts the App key, 503 otherwise, saying nothing of the key', async () => {
-  const health = (e = env) => handle(new Request('https://broker.example.com/health'), e, fake, now);
+test('GET /healthcheck: 200 while GitHub accepts the App key, 503 otherwise, saying nothing of the key', async () => {
+  const health = (e = env) => handle(new Request('https://broker.example.com/healthcheck'), e, fake, now);
   let r = await health();
   assert.equal(r.status, 200);
   assert.deepEqual(await r.json(), { ok: true });
