@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.8.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.7.1...v2.8.0) (2026-11-10)
+
+
+### Features
+
+* **deliver:** the Android signing secrets are ANDROID_*, CM_* a deprecated fallback ([#63](https://github.com/GuillaumeDerivery/kheona-skill/issues/63)) ([1b81332](https://github.com/GuillaumeDerivery/kheona-skill/commit/1b81332fabd3ed968ec1d790b7de898fd3e4146e))
+* **deliver:** the self-test's dry run runs each lane up to signing ([#66](https://github.com/GuillaumeDerivery/kheona-skill/issues/66)) ([e081298](https://github.com/GuillaumeDerivery/kheona-skill/commit/e0812988a66a41bd095c5ff00cbccb1d676c9f52))
+* **setup:** walk through each secret without reading it, check the App, resume where it stopped ([#64](https://github.com/GuillaumeDerivery/kheona-skill/issues/64)) ([86da0cf](https://github.com/GuillaumeDerivery/kheona-skill/commit/86da0cf306f75de0a2a45154143096261992c44f))
+
+
+### Bug Fixes
+
+* **deliver-flutter:** accept a distribution .p12 without a password ([#68](https://github.com/GuillaumeDerivery/kheona-skill/issues/68)) ([7139bb8](https://github.com/GuillaumeDerivery/kheona-skill/commit/7139bb8aa2b0cede6b6bd3132b5a44de62b6418b))
+
 ## [2.7.1](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.7.0...v2.7.1) (2026-11-10)
 
 
