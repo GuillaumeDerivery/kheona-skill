@@ -109,6 +109,8 @@ The repository is also the `kheona` skill (`SKILL.md`, `stacks/`, the `enforce.s
 git clone https://github.com/<owner>/kheona-skill ~/.claude/skills/kheona
 ```
 
+`/kheona` audits a repository, lands the mechanical fixes, files an issue for each failure left and reports; `/kheona report` only reports.
+
 ## Reference
 
 - [docs/kheona-json.md](docs/kheona-json.md): every `.kheona.json` key.
