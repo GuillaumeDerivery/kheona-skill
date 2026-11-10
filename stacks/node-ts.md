@@ -158,7 +158,7 @@ git dependency at the version tag its callers use, nothing copied and no registr
 - `package.json`: `"devDependencies": { "kheona-skill": "github:owner/kheona-skill#vX.Y.Z" }`. Renovate's kheona-skill
   group moves this tag with the callers and the preset, in the same PR; a format change comes with its reformat there.
 - `.npmrc`: `allow-git` for that source (npm 12 refuses git dependencies by default). `allow-git=root` when the
-  repository's own `package.json` is the only one naming it; `allow-git=all` when a `file:` dependency (lib as a
+  repository's own `package.json` is the only one naming it; `allow-git=all` when a `file:` dependency (a library as a
   submodule) carries its own reference, which `root` refuses (`EALLOWGIT`). Under `root`, npm 11 also refuses to
   replace an installed git dependency: after a tag change, run that one `npm install --allow-git=all` (`npm ci` is
   fine; Renovate's own npmrc allows all). A Dockerfile that installs copies `.npmrc` with the lock file.
