@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.7.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.6.2...v2.7.0) (2026-11-10)
+
+
+### Features
+
+* one shared workflow per job, the stack read from the repository ([#58](https://github.com/GuillaumeDerivery/kheona-skill/issues/58)) ([64fa007](https://github.com/GuillaumeDerivery/kheona-skill/commit/64fa007a8929f11ca533946206bc07d88fd77cd5))
+* two modes for /kheona, the default fixes and files, report only reports ([#60](https://github.com/GuillaumeDerivery/kheona-skill/issues/60)) ([648ecef](https://github.com/GuillaumeDerivery/kheona-skill/commit/648ecef24c1d3c69d533316c9ac7e42b1cbd1818))
+
 ## [2.6.2](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.6.1...v2.6.2) (2026-11-10)
 
 
