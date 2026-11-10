@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.1](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.7.0...v2.7.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* **renovate:** one kheona-skill PR per release, and a warning when the plan runs behind it ([#61](https://github.com/GuillaumeDerivery/kheona-skill/issues/61)) ([a63689f](https://github.com/GuillaumeDerivery/kheona-skill/commit/a63689f9db2d3a04e7808c20e576847ed537f466))
+
 ## [2.7.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.6.2...v2.7.0) (2026-11-10)
 
 
