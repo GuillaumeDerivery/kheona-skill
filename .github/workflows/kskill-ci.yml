@@ -1,17 +1,20 @@
 # This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
 # not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # Trigger: called by every workflow that needs the gate
-# Purpose: one name for the gate, whatever the stack
+# Purpose: one gate, whatever the stack: it reads the stack from the repository and runs that stack's CI
 # Effect: none of its own: runs the stack's CI
+# The stack is the repository's, as the callers' generator reads it (scripts/kskill-callers.mjs stack): pubspec.yaml =
+# flutter, Pipfile or pyproject.toml = python, package.json = node, else .kheona.json's role "infra" = infra. No stack
+# fails the gate, never passes it silently. The callers never name a stack.
 name: Kheona Skill · CI
 
 on:
   workflow_call:
     inputs:
       stack:
-        description: node, python, flutter or infra.
+        description: Empty (the default) reads it from the repository. A caller that already read it passes it on (kskill-main.yml); an older generation of callers still passes its own.
         type: string
-        required: true
+        default: ''
       called:
         type: boolean
         default: false
@@ -22,8 +25,47 @@ on:
 permissions: {}
 
 jobs:
+  stack:
+    name: Read the stack
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      stack: ${{ steps.read.outputs.stack }}
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      - name: Check out the manifests
+        if: inputs.stack == ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.kheona.json
+            /package.json
+            /pubspec.yaml
+            /Pipfile
+            /pyproject.toml
+
+      - name: Read the stack
+        id: read
+        env:
+          GIVEN: ${{ inputs.stack }}
+        run: |
+          if [ -n "$GIVEN" ]; then
+            case $GIVEN in node | python | flutter | infra) ;; *) echo "::error::Unknown stack '$GIVEN': node, python, flutter or infra."; exit 1 ;; esac
+            echo "stack=$GIVEN" | tee -a "$GITHUB_OUTPUT"
+          else
+            read_stack=$(node "$KSKILL_HOME/scripts/kskill-callers.mjs" stack)
+            grep '^stack=' <<<"$read_stack" | tee -a "$GITHUB_OUTPUT"
+          fi
+
   node:
-    if: inputs.stack == 'node'
+    needs: stack
+    if: needs.stack.outputs.stack == 'node'
     permissions:
       actions: read
       contents: read
@@ -34,7 +76,8 @@ jobs:
       called: ${{ inputs.called }}
 
   python:
-    if: inputs.stack == 'python'
+    needs: stack
+    if: needs.stack.outputs.stack == 'python'
     permissions:
       actions: read
       contents: read
@@ -44,7 +87,8 @@ jobs:
       image: ${{ inputs.image }}
 
   flutter:
-    if: inputs.stack == 'flutter'
+    needs: stack
+    if: needs.stack.outputs.stack == 'flutter'
     permissions:
       actions: read
       contents: read
@@ -54,11 +98,11 @@ jobs:
       image: ${{ inputs.image }}
 
   infra:
-    if: inputs.stack == 'infra'
+    needs: stack
+    if: needs.stack.outputs.stack == 'infra'
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/kskill-ci-infra.yml
     with:
       image: ${{ inputs.image }}
-

@@ -3,9 +3,9 @@
 
 # Kheona stack extension — Flutter / Dart
 
-Commands for each `SKILL.md` item, for every Flutter app. The shared workflows are `kskill-ci-flutter.yml` (the
-gate), `kskill-main-flutter.yml` (a push to `main`) and `kskill-deliver-flutter.yml` (TestFlight and Google Play from a
-version tag).
+Commands for each `SKILL.md` item, for every Flutter app. The shared workflows are `kskill-ci.yml` (the
+gate, running `kskill-ci-flutter.yml` for an app), `kskill-main.yml` (a push to `main`: the gate, no deploy) and
+`kskill-deliver-flutter.yml` (TestFlight and Google Play from a version tag). The stack is read from `pubspec.yaml`.
 
 ## K1 — Toolchain
 

@@ -70,9 +70,9 @@ on:
         type: boolean
         default: true
       stack:
-        description: node, python, flutter or infra (written by the setup command).
+        description: Empty (the default) lets the gate read it from the repository (kskill-ci.yml); an older generation of callers still passes its own.
         type: string
-        required: true
+        default: ''
       dry_run:
         description: Stop before anything is built, pushed or rolled out (the self-test).
         type: boolean

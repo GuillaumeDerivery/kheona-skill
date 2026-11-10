@@ -6,8 +6,8 @@
 # The Node/TypeScript gate . Called, never triggered by a push of its own:
 # by `Kheona Skill · PR` on every pull request (kskill-pr.yml, any base: a stacked PR must get checks), by
 # `Kheona Skill · Main` on every push to main (kskill-main.yml, before the staging deploy) and by the production deploy
-# (`uses: ./.github/workflows/kskill-ci.yml`, `needs:`); by hand too. Installed in every Node
-# repository as `.github/workflows/kskill-ci.yml`. It never deploys, pushes an image or writes to the repository.
+# (`uses: ./.github/workflows/kskill-ci.yml`, `needs:`); by hand too. Run by the shared
+# kskill-ci.yml wherever the stack it reads is node. It never deploys, pushes an image or writes to the repository.
 #
 # Jobs: "Read the configuration" (the App secrets check, the tested tree, the repository check from
 # actions/kskill-repo-check, then .kheona.json) -> "Check, build and test" and, when a Dockerfile exists, "Build the

@@ -1,0 +1,110 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
+# not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# Trigger: a push to main (a merged PR)
+# Purpose: the gate once (a green PR run of the same tree reused), then a service's staging deploy
+# Effect: deploys staging, in a service
+# Everything a push to `main` starts, in one run, whatever the repository is. Installed as `.github/workflows/kskill-main.yml`.
+#   0. The stack and what main deploys, read from the repository (scripts/kskill-callers.mjs stack, as the callers'
+#      generator reads them): a service (Node or Python, a template included) deploys staging; a library (`role:
+#      library`) and a Flutter app deploy nothing (an app ships from a version tag, kskill-deliver.yml).
+#   1. CI: the stack's gate, `kskill-ci.yml`, called once. A green `Kheona Skill · PR` run of the same tree (a squash
+#      merge of an up-to-date PR) is reused: only its first job runs (kskill-tested-tree.sh).
+#   2. Staging, in a service: `kskill-deploy.yml` (`gate: false`: it needs this run's CI), where `workflows.cd.staging`
+#      is set (skipped before any runner where the Actions variable KSKILL_CD_STAGING is "false"). With
+#      workflows.cd.target "custom", its outputs hand the deploy to the caller's `custom` job.
+# The release PR is release-please's (kskill-release-please.yml); production is the version tag merging it creates
+# (kskill-deploy.yml, kskill-deliver.yml). A passed run of this workflow is what that release checks on the commit
+# before it. Never runs from a pull request.
+# Variable: KSKILL_TOKEN_BROKER_URL (the token broker), and the deploy's (AWS_ACCESS_KEY_ID,
+# AWS_SECRET_ACCESS_KEY, SLACK_WEBHOOK_URL), all passed on. No .kheona.json keys of its own: the deploy's `workflows.cd`.
+name: Kheona Skill · Main
+
+on:
+  workflow_call:
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      SLACK_WEBHOOK_URL:
+        required: false
+    outputs:
+      deploy:
+        description: '"custom" when the repository''s own workflow is to deploy staging now; else empty.'
+        value: ${{ jobs.staging.outputs.deploy }}
+      environment:
+        description: staging, when it deployed.
+        value: ${{ jobs.staging.outputs.environment }}
+      version:
+        description: Always empty here (staging has no version).
+        value: ${{ jobs.staging.outputs.version }}
+
+permissions:
+  contents: read
+
+env:
+  KSKILL_BOT: ${{ vars.KSKILL_BOT }}
+  KSKILL_LIB_REPO: ${{ vars.KSKILL_LIB_REPO }}
+
+jobs:
+  stack:
+    name: Read the stack
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      stack: ${{ steps.read.outputs.stack }}
+      deploys: ${{ steps.read.outputs.deploys }}
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      - name: Check out the manifests
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.kheona.json
+            /package.json
+            /pubspec.yaml
+            /Pipfile
+            /pyproject.toml
+
+      - name: Read the stack
+        id: read
+        run: |
+          read_stack=$(node "$KSKILL_HOME/scripts/kskill-callers.mjs" stack)
+          tee -a "$GITHUB_OUTPUT" <<<"$read_stack"
+
+  ci:
+    name: CI
+    needs: stack
+    uses: ./.github/workflows/kskill-ci.yml
+    # A service's staging deploy builds the image; the gate builds it only where no staging deploy follows.
+    with:
+      stack: ${{ needs.stack.outputs.stack }}
+      image: ${{ needs.stack.outputs.deploys != 'true' || vars.KSKILL_CD_STAGING == 'false' }}
+    permissions:
+      contents: read
+      actions: read            # the tested-tree lookup: a green PR run of this tree is reused (kskill-tested-tree.sh)
+      id-token: write
+
+  staging:
+    name: Staging
+    needs: [stack, ci]
+    if: needs.stack.outputs.deploys == 'true' && vars.KSKILL_CD_STAGING != 'false'
+    uses: ./.github/workflows/kskill-deploy.yml
+    with:
+      stack: ${{ needs.stack.outputs.stack }}
+      gate: false
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read      # the deploy's release check (it decides staging from the ref)
+      id-token: write
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

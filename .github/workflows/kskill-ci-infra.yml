@@ -3,8 +3,8 @@
 # Trigger: called by Kheona Skill · PR on every pull request; by hand
 # Purpose: the infra gate: repository check, terraform fmt and validate, tflint, trivy config, kubeconform on the manifests
 # Effect: nothing: reports only
-# gate for a `role: infra` repository (Terraform, Kubernetes manifests, secrets under git-crypt), installed as
-# `.github/workflows/kskill-ci.yml`. Called, never triggered by a push of its own: by `Kheona Skill · PR` on every pull
+# gate for a `role: infra` repository (Terraform, Kubernetes manifests, secrets under git-crypt), run by the
+# shared kskill-ci.yml where the stack it reads is infra. Called, never triggered by a push of its own: by `Kheona Skill · PR` on every pull
 # request (kskill-pr.yml, any base); by hand. An infra repository has no kskill-main.yml: applying is manual
 # (`terraform apply` from Terraform Cloud or a person, `kubectl apply`), so a push to main deploys nothing and needs no gate.
 # **No `terraform plan` here**: a plan needs the cloud credentials and the state, which a CI run never holds; Terraform

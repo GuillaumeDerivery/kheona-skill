@@ -31,6 +31,35 @@ check "gitAuthor" "$(jq -r .gitAuthor "$T/out/renovate-owner.json" 2>/dev/null)"
 check "npm may fetch git dependencies (the shared configs, and lib's own reference to them)" "$(jq -c "[.npmrc, .npmrcMerge]" "$T/out/renovate-owner.json" 2>/dev/null)" '["allow-git=all\n",true]'
 check "repositories" "$(jq -c .repositories "$T/out/renovate-owner.json" 2>/dev/null)" '["owner/repo"]'
 check "dry run" "$(jq -r .dryRun "$T/out/renovate-owner.json" 2>/dev/null)" full
+# kheona-skill's PR writes the callers again: one command, allowed exactly, run once per branch.
+cmd=$(jq -r '.packageRules[0].postUpgradeTasks.commands[0]' "$T/out/renovate-owner.json" 2>/dev/null)
+check "post-upgrade: kheona-skill's PR, once per branch" "$(jq -c '.packageRules[0] | [.matchDepNames, .postUpgradeTasks.executionMode]' "$T/out/renovate-owner.json" 2>/dev/null)" '[["/(^|/)kheona-skill(/|$)/"],"branch"]'
+check "... the command is allowed, exactly" "$(CMD=$cmd RX=$(jq -r '.allowedCommands | join("\n")' "$T/out/renovate-owner.json") node -e '
+  const rx = process.env.RX.split("\n"); console.log(rx.length + ":" + rx.every((r) => new RegExp(r).test(process.env.CMD)) + ":" + new RegExp(rx[0]).test(process.env.CMD + " && true"))')" '1:true:false'
+check "... no template braces, one quoted argument" "$(grep -c '{{' <<<"$cmd"):$(tr -cd "'" <<<"$cmd" | wc -c | tr -d ' ')" '0:2'
+# Run it as Renovate does (shlex-split, no shell), on a repository whose callers Renovate just moved from an older
+# generation (a per-stack main, the stack named): fetch serves this checkout's files.
+OLD=0123456789abcdef0123456789abcdef01234567; NEW=89abcdef0123456789abcdef0123456789abcdef
+R=$T/repo; mkdir -p "$R/.github/workflows"; echo '{}' > "$R/package.json"; echo '{"role":"project"}' > "$R/.kheona.json"
+node "$HERE/scripts/kskill-callers.mjs" write --repo "$R" --self owner/kheona-skill --sha $OLD --version v1.0.0 > /dev/null
+sed -i.bak "s|kskill-main.yml@$OLD|kskill-main-service.yml@$OLD|; s|^    uses: \(.*\)$|&\n    with:\n      stack: node|" "$R/.github/workflows/kskill-main.yml"; rm -f "$R"/.github/workflows/*.bak
+for f in "$R"/.github/workflows/*.yml; do sed -i.bak "s/$OLD # v1.0.0/$NEW # v1.1.0/; s/at v1.0.0\./at v1.1.0./" "$f"; rm -f "$f.bak"; done
+cat > "$T/fetch.mjs" <<'JS'
+import { readFileSync } from 'node:fs';
+globalThis.fetch = async (url) => {
+  const m = String(url).match(/^https:\/\/raw\.githubusercontent\.com\/owner\/kheona-skill\/[0-9a-f]{40}\/(.+)$/);
+  if (!m) return { ok: false, status: 404 };
+  const body = readFileSync(`${process.env.KSKILL_TEST_HOME}/${m[1]}`, 'utf8');
+  return { ok: true, status: 200, text: async () => body };
+};
+JS
+argv=$(CMD=$cmd python3 -c 'import os, shlex, json; print(json.dumps(shlex.split(os.environ["CMD"])))')
+out=$(cd "$R" && KSKILL_TEST_HOME=$HERE NODE_OPTIONS="--import=$T/fetch.mjs" node -e '
+  const [cmd, ...args] = JSON.parse(process.argv[1]);
+  const r = require("child_process").spawnSync(cmd, args, { stdio: "inherit" }); process.exit(r.status);' "$argv" 2>&1); rc=$?
+check "... runs" "$rc" 0
+check "... main is written again, at the new pin, no stack named" "$(grep -c "kskill-main.yml@$NEW # v1.1.0" "$R/.github/workflows/kskill-main.yml"):$(grep -c 'stack:' "$R/.github/workflows/kskill-main.yml")" '1:0'
+node "$HERE/scripts/kskill-callers.mjs" check --repo "$R" --self owner/kheona-skill >/dev/null 2>&1; check "... and the callers rule passes" "$?" 0
 PATH="$T/bin:$PATH" KSKILL_LIB_REPO=owner/lib KSKILL_APP_TOKENS="$T/tokens.json" REPOSITORIES=owner/repo \
   bash "$HERE/scripts/kskill-renovate-plan.sh" "$T/out2" >/dev/null 2>&1; rc=$?
 check "KSKILL_BOT required" "$([ $rc -ne 0 ] && echo refused)" refused

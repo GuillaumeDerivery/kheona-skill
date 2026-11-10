@@ -9,6 +9,9 @@
 #     processed (requireConfig), never onboarded;
 #   - lib's rule 1: in every repository whose .gitmodules points at the library repository, the packages lib's
 #     package.json names (read from lib's default branch now) are left alone: they follow lib through bump-lib;
+#   - kheona-skill's PR writes the callers again (postUpgradeTasks, once per branch): Renovate moves their pins, then
+#     scripts/kskill-callers-regenerate.mjs runs the generator of the version they now name. allowedCommands allows
+#     that one command, exactly, and nothing else;
 #   - the commits are the App's; DRY_RUN=full turns Renovate's dryRun on.
 # Usage: kskill-renovate-plan.sh <out-dir>
 # Env: KSKILL_APP_TOKENS (tokens.json of .github/scripts/kskill-app-tokens.mjs), REPOSITORIES (optional, space-separated),
@@ -34,6 +37,9 @@ fi
 BOT_ID=$(curl -fsS "https://api.github.com/users/$(jq -rn --arg b "$BOT" '$b|@uri')" | jq -r .id)
 [ -n "$BOT_ID" ] && [ "$BOT_ID" != null ] || { echo "::error::No GitHub user $BOT" >&2; exit 1; }
 
+# The callers' regeneration: the script on one line, its comment lines dropped (see its header).
+regen_cmd="node --input-type=module -e '$(grep -v '^//' "$HERE/kskill-callers-regenerate.mjs" | sed 's/^ *//' | tr '\n' ' ' | sed 's/ *$//')'"
+
 lib_token=$(token_of "${LIB%%/*}")
 lib_packages=$(raw "$lib_token" "$LIB" package.json |
   jq -c '[(.dependencies, .devDependencies, .peerDependencies, .optionalDependencies) // {} | keys[]] | unique')
@@ -50,7 +56,7 @@ owners='[]'
 for owner in $(printf '%s\n' "${repos[@]}" | cut -d/ -f1 | sort -fu); do
   [ -n "$(token_of "$owner")" ] || { echo "- $owner: the App is not installed there, skipped"; continue; }
   mine=$(printf '%s\n' "${repos[@]}" | awk -F/ -v o="$owner" 'tolower($1) == tolower(o)' | jq -Rnc '[inputs]')
-  jq -n --argjson repos "$mine" --argjson consumers "$consumers" --argjson pkgs "$lib_packages" --arg dry "${DRY_RUN:-}" --arg bot "$BOT" --arg author "$BOT <$BOT_ID+$BOT@users.noreply.github.com>" '{
+  jq -n --argjson repos "$mine" --argjson consumers "$consumers" --argjson pkgs "$lib_packages" --arg dry "${DRY_RUN:-}" --arg bot "$BOT" --arg author "$BOT <$BOT_ID+$BOT@users.noreply.github.com>" --arg regen "$regen_cmd" '{
     platform: "github",
     username: $bot,
     gitAuthor: $author,
@@ -60,9 +66,14 @@ for owner in $(printf '%s\n' "${repos[@]}" | cut -d/ -f1 | sort -fu); do
     cloneSubmodules: true,
     npmrc: "allow-git=all\n",
     npmrcMerge: true,
-    packageRules: (if ($consumers | length) == 0 then [] else [{
+    allowedCommands: ["^" + ($regen | gsub("(?<c>[.*+?^${}()|\\[\\]\\\\/])"; "\\\(.c)")) + "$"],
+    packageRules: ([{
+      description: "kheona-skill'"'"'s PR: the callers written again by the version they now name (scripts/kskill-callers-regenerate.mjs).",
+      matchDepNames: ["/(^|/)kheona-skill(/|$)/"],
+      postUpgradeTasks: { commands: [$regen], executionMode: "branch", fileFilters: [".github/workflows/kskill-*.yml", ".github/workflows/kskill-*.yaml", "renovate.json"] } }]
+      + (if ($consumers | length) == 0 then [] else [{
       description: "lib rule 1: a lib consumer keeps every package lib names at lib'"'"'s exact version; the inbox job bump-lib moves them.",
-      matchRepositories: $consumers, matchPackageNames: $pkgs, enabled: false }] end)
+      matchRepositories: $consumers, matchPackageNames: $pkgs, enabled: false }] end))
   } + (if $dry == "" then {} else {dryRun: $dry} end)' > "$OUT/renovate-$owner.json"
   owners=$(jq -c --arg o "$owner" '. + [$o]' <<<"$owners")
   echo "- $owner: $(jq -r 'join(", ")' <<<"$mine")"

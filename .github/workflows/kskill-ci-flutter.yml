@@ -3,7 +3,7 @@
 # Trigger: called by Kheona Skill · PR, Main and the delivery; by hand
 # Purpose: the Flutter gate: format, analyze, tests, repository checks, OSV scan of changed lockfiles
 # Effect: nothing: reports only
-# Installed as .github/workflows/kskill-ci.yml (the stack-neutral path the delivery workflow calls).
+# Run by the shared kskill-ci.yml wherever the stack it reads is flutter (the delivery calls kskill-ci.yml).
 # the gate of a Flutter app. Called, never triggered by a push of its own: by `Kheona Skill · PR` on every pull
 # request (kskill-pr.yml, any base: a `branches:` filter gives a stacked PR zero checks), by `Kheona Skill · Main` on
 # every push to main (kskill-main.yml) and as the first job of the delivery (workflow_call), so nothing ships from an
