@@ -160,9 +160,16 @@ git dependency at the version tag its callers use, nothing copied and no registr
   group moves this tag with the callers and the preset, in the same PR; a format change comes with its reformat there.
 - `.npmrc`: `allow-git` for that source (npm 12 refuses git dependencies by default). `allow-git=root` when the
   repository's own `package.json` is the only one naming it; `allow-git=all` when a `file:` dependency (a library as a
-  submodule) carries its own reference, which `root` refuses (`EALLOWGIT`). Under `root`, npm 11 also refuses to
-  replace an installed git dependency: after a tag change, run that one `npm install --allow-git=all` (`npm ci` is
-  fine; Renovate's own npmrc allows all). A Dockerfile that installs copies `.npmrc` with the lock file.
+  submodule) carries its own reference, which `root` refuses (`EALLOWGIT`). A Dockerfile that installs copies `.npmrc`
+  with the lock file.
+- **Moving the tag by hand under `root`:** `npm install --package-lock-only`, then `npm install` (or `npm ci`). npm
+  (11.19 and 12.2 alike) counts a git dependency as the root's only while the root's edge to it is valid, and for a
+  tag it checks that edge against the tag in the lock file it loaded: when `package.json` names a new tag and the lock
+  file still the old one (a hand edit, `npm install -D kheona-skill@github:…#vNEW`, `npm update`), the download is
+  refused as non-root (`Fetching non-root packages of type "git" have been disabled`). Resolving the lock file first
+  makes the two agree. Pulling a branch where both moved (Renovate's PR), `npm ci`, CI and Renovate itself (its own
+  npmrc allows all) are not affected. Not a reason to set `all`: that would also accept any git dependency of a
+  dependency.
 - The repository's own file is one line that re-exports the shared one, and overrides only what it must.
 
 The shared Prettier options: single quotes, `printWidth: 200`, double quotes in YAML.
