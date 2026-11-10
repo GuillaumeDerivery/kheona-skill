@@ -9,7 +9,8 @@
 #   - a version tag vX.Y.Z: merging the release PR (a person) tags it with the App token; the check asks for a tag on
 #     main, a release PR merged by a person, Main passed on the commit before. A dispatch on a tag needs a published
 #     release and a person with write access. A store build cannot be taken back: an app fixes forward, it never rolls back.
-#   - a dispatch on main: a test build, no version (the build number is still main's commit count).
+#   - a dispatch on main: a test build, named after the next patch (v1.4.0 released: 1.4.1, kskill-build-name.sh); a
+#     test build of a commit a release tag points at is refused.
 #   - anything else: refused. No pull_request trigger, so a PR or a fork can never reach it.
 #   - dry_run (kheona-skill's self-test, from a pull request too): the release check and the settings, then stops:
 #     no gate, nothing signed or uploaded.
@@ -23,7 +24,7 @@
 # What is app-specific and stays in the repository, behind a stable hook: `android/fastlane/Fastfile` and
 # `ios/fastlane/Fastfile` (+ Appfiles) own bundle/package ids, team id, Play track, ABIs, signing settings and
 # the .ipa name. The workflow runs `cd android && fastlane <android.lane>` and `cd ios && fastlane <ios.lane>`
-# with BUILD_NUMBER, CM_KEYSTORE_PATH, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD,
+# with BUILD_NUMBER, BUILD_NAME (optional for the lane: `--build-name`), CM_KEYSTORE_PATH, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD,
 # PLAY_STORE_JSON_KEY_PATH, ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_FILEPATH, SENTRY_ENVIRONMENT in the environment (the
 # lane compiles it in with --dart-define=SENTRY_ENVIRONMENT=..., read by lib/core/config/app_config.dart, ).
 # The Android lane must
@@ -284,6 +285,15 @@ jobs:
           KSKILL_BUILD_NUMBER_OFFSET: ${{ needs.config.outputs.offset }}
         run: bash "$KSKILL_HOME/.github/scripts/kskill-build-number.sh"
 
+      # The release's version, or for a test build the next patch (a store closes a released version). A lane that
+      # does not pass BUILD_NAME on builds pubspec.yaml's version, which the store refuses once that version shipped.
+      - name: Derive the build name
+        env:
+          VERSION: ${{ needs.config.outputs.version }}
+        run: |
+          bash "$KSKILL_HOME/.github/scripts/kskill-build-name.sh"
+          grep -q BUILD_NAME android/fastlane/Fastfile || echo "::warning::android/fastlane/Fastfile never reads BUILD_NAME: the build is named after pubspec.yaml's version. Pass --build-name \"\$BUILD_NAME\" to flutter build."
+
       # The runner's disk is ~95 % full after a release build, and the post-job cache saves then fail the job with
       # "No space left on device" after the upload succeeded. The image's .NET, GHC, CodeQL, Swift and Boost are not
       # used here (the Android SDK is kept).
@@ -491,6 +501,15 @@ jobs:
           BUILD_NUMBER_OVERRIDE: ${{ vars.BUILD_NUMBER_OVERRIDE }}
           KSKILL_BUILD_NUMBER_OFFSET: ${{ needs.config.outputs.offset }}
         run: bash "$KSKILL_HOME/.github/scripts/kskill-build-number.sh"
+      # does not pass BUILD_NAME on builds pubspec.yaml's version, which the store refuses once that version shipped.
+      - name: Derive the build name
+        env:
+          VERSION: ${{ needs.config.outputs.version }}
+        run: |
+          bash "$KSKILL_HOME/.github/scripts/kskill-build-name.sh"
+          grep -q BUILD_NAME ios/fastlane/Fastfile || echo "::warning::ios/fastlane/Fastfile never reads BUILD_NAME: the build is named after pubspec.yaml's version. Pass --build-name \"\$BUILD_NAME\" to flutter build."
+
+      # The release's version, or for a test build the next patch (a store closes a released version). A lane that
 
       - name: Set up Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0

@@ -143,9 +143,12 @@ Flutter-specific K2.3/K2.4 notes:
 - K2.3 build numbers: `git rev-list --count HEAD` (`.github/scripts/kskill-build-number.sh`, plus
   `.kheona.json`'s offset) — **not** what is live on the store. Both stores' lookups lag what their upload endpoint
   enforces, and reading each store separately drifts the two platforms apart, so "build 39" stops meaning one
-  commit. Nothing is committed back to git, the version *name* comes from `pubspec.yaml` only, and the checkout is
-  full: at depth 1 the count is `1`, which every store rejects. `BUILD_NUMBER_OVERRIDE` re-ships an unchanged commit
-  once.
+  commit. Nothing is committed back to git, and the checkout is full: at depth 1 the count is `1`, which every store
+  rejects. `BUILD_NUMBER_OVERRIDE` re-ships an unchanged commit once.
+- K2.3 build names (`.github/scripts/kskill-build-name.sh`, exported as `BUILD_NAME`): a release is its tag's
+  version, which `pubspec.yaml` must match; a test build is the next patch after the last release (v1.4.0 shipped:
+  `1.4.1`), because a store closes a version once it is released. A test build of a released commit is refused.
+  Each lane passes `--build-name "$BUILD_NAME"` to `flutter build`.
 - **K2.8 is at its sharpest here.** Both stores consume a version number permanently, Apple caps uploads
   per app per day (`90382`), and the macOS lane bills at 10x. The stores get a build only from a version tag (a
   person merging the release PR); a dispatch on `main` is a test build. `gh run list --workflow kskill-deliver.yml`
