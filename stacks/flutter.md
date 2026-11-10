@@ -46,6 +46,22 @@ and the generated Swift package present. A repo carrying *both* a Podfile and
 `ios/Flutter/ephemeral/Packages` is on the hybrid path — that is a FAIL, not a partial pass: it still has
 every CocoaPods failure mode below while looking migrated.
 
+**One `Package.resolved`, and it resolves.** Xcode reads the workspace's pin file
+(`ios/Runner.xcworkspace/xcshareddata/swiftpm/Package.resolved`); it also writes one under
+`Runner.xcodeproj/project.xcworkspace/` when the project is opened alone. Track only the workspace's and
+gitignore the other: two tracked copies drift apart (a dependency bump updates one), and a stale workspace
+copy crashes `xcodebuild -resolvePackageDependencies` ("INTERNAL ERROR: Unable to load workspace") in the
+iOS delivery, after every Linux check has passed.
+```bash
+git ls-files 'ios/*Package.resolved'   # one line: the workspace's
+flutter build ios --config-only --release --no-codesign \
+  && (cd ios && xcodebuild -resolvePackageDependencies -workspace Runner.xcworkspace -scheme Runner -configuration Release) \
+  && git diff --exit-code -- '*Package.resolved'
+```
+**Pass:** one tracked pin file, the resolution exits 0 and leaves it unchanged. `kskill-ci-flutter.yml` runs
+both: the pin-file check in `Verify`, the resolution in `iOS packages` (macOS, the delivery's Xcode) on every
+pull request that changes `pubspec.yaml`, `pubspec.lock` or `ios/` (`workflows.ci.iosPackages: false` turns it off).
+
 **Why the ban:** CocoaPods resolves at build time against a remote spec repo, so a build is not
 reproducible from the checkout alone. It is a second package manager — its own Ruby toolchain, its own
 version, its own lockfile — sitting beside pub's, and a `pod install` rewrites `project.pbxproj` every

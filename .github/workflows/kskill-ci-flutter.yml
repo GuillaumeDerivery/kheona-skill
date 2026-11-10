@@ -15,6 +15,11 @@
 # checks, local packages, tests, then the OSV scan of the lockfiles (a warning, never a failure here; on a PR
 # only when it changes a pubspec.lock or an osv-scanner.toml).
 # Coverage is collected and uploaded, never gated : no lcov, no percentage, no floor. The Flutter version is read from .fvmrc / pubspec.yaml (kskill-flutter-version.sh).
+# iOS Swift packages: Verify fails when ios/ tracks more than one Package.resolved and they differ (Xcode reads the
+# workspace's; a stale copy crashes its package resolution). On a pull request that changes pubspec.yaml,
+# pubspec.lock or anything under ios/, `iOS packages` (macOS, the delivery's Xcode) runs the resolution the iOS
+# delivery runs and fails if Xcode fails or rewrites a committed Package.resolved: the Linux gate builds no iOS, so a
+# dependency bump could otherwise pass every check and break only the TestFlight lane.
 #
 # .kheona.json `workflows.ci` (all optional):
 #   androidToolchain  boolean   default: true when android/ exists. Runs kskill-check-flutter-toolchain.sh.
@@ -24,6 +29,7 @@
 #                               (e.g. "./tool/check_invariants.sh"). They come from the repository, like its code.
 #   testConcurrency   integer   default: the runner's CPU count. `flutter test --concurrency`: package:test would
 #                               otherwise run half as many test files at once (one, on a 2-CPU runner).
+#   iosPackages       boolean   default: true when ios/ exists. Runs the `iOS packages` job (above).
 #   packages          array     default: []. Local packages verified on their own (kskill-flutter-package.sh):
 #                               "packages/x" or {"path": "packages/x", "failUnder": 90}. failUnder is the
 #                               pure-Dart threshold, ignored on a Flutter package.
@@ -119,6 +125,29 @@ jobs:
           broker-url: ${{ vars.KSKILL_TOKEN_BROKER_URL }}
           fork: ${{ github.event.repository.fork }}
           sentry-project: ${{ vars.SENTRY_PROJECT }}
+
+      # Xcode resolves through the workspace's Package.resolved; Xcode also writes one under the project when the
+      # project is opened alone. Two tracked copies drift apart (one updated by hand, the other not) and a stale
+      # workspace copy crashes `xcodebuild -resolvePackageDependencies` ("Unable to load workspace"). Keep one; if
+      # several are tracked they must be identical.
+      - name: Check the Swift package pins
+        if: steps.reuse.outputs.reused != 'true'
+        run: |
+          pins=$(git ls-files -- 'ios/*Package.resolved' 'macos/*Package.resolved')
+          for dir in ios macos; do
+            files=$(grep "^$dir/" <<<"$pins" || true)
+            n=$(grep -c . <<<"$files" || true)
+            [ "$n" -gt 1 ] || continue
+            first=$(head -n 1 <<<"$files")
+            while IFS= read -r f; do
+              if ! cmp -s "$first" "$f"; then
+                echo "::error file=$f::$f differs from $first. Xcode resolves through the workspace's Package.resolved: keep that one, untrack and gitignore the other (Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved)."
+                exit 1
+              fi
+            done <<<"$files"
+            echo "::notice::$dir/ tracks $n identical Package.resolved files: keep only the workspace's so they cannot drift apart."
+          done
+          echo "Swift package pin files: $(grep -c . <<<"$pins" || true), none diverging."
 
       # bootstrap or established; a store release (the delivery's gate on a version tag) refuses bootstrap.
       - name: Read the phase
@@ -323,3 +352,134 @@ jobs:
           # warn: a suite that fails to compile writes no lcov.info; a second red step would hide the cause.
           if-no-files-found: warn
           retention-days: 14
+
+  # Decides, on Linux, whether the macOS job below runs: only on a pull request that changes pubspec.yaml,
+  # pubspec.lock or ios/ (macOS bills at 10x; a tag is covered by the delivery's own iOS lane).
+  ios-plan:
+    name: iOS packages · plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+      xcode: ${{ steps.plan.outputs.xcode }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Decide
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          cfg='{}'
+          if [ -f .kheona.json ]; then
+            cfg=$(jq -c . .kheona.json) || { echo "::error file=.kheona.json::not valid JSON"; exit 1; }
+          fi
+          enabled=$(jq -r '.workflows.ci.iosPackages // null' <<<"$cfg")
+          if [ "$enabled" = null ]; then
+            if [ -d ios ]; then enabled=true; else enabled=false; fi
+          fi
+          xcode=$(jq -r '.workflows.cd.ios.xcode // ""' <<<"$cfg")
+          [[ -z "$xcode" || "$xcode" =~ ^[0-9]+(\.[0-9]+)*$ ]] || { echo "::error file=.kheona.json::workflows.cd.ios.xcode must be a version, got '$xcode'."; exit 1; }
+          run=false
+          if [ "$enabled" != true ]; then
+            echo "iOS packages: off (no ios/ or workflows.ci.iosPackages is false)."
+          elif [ "$EVENT_NAME" != pull_request ]; then
+            echo "iOS packages: pull requests only (the delivery resolves on a tag)."
+          else
+            # shellcheck disable=SC2016 # why: the single-quoted string is a jq program; $n is a jq variable
+            if files=$(gh api "repos/$GH_REPO/compare/$BASE...$HEAD" --jq '.files | length as $n | if $n >= 300 then "MANY" else .[].filename end'); then
+              if grep -qx MANY <<<"$files" || grep -qE '^(pubspec\.(yaml|lock)|ios/.*)$' <<<"$files"; then run=true; fi
+            else
+              echo "::warning::Could not list the PR's files: resolving anyway."; run=true
+            fi
+            [ "$run" = true ] || echo "iOS packages: this PR changes no pubspec.yaml, pubspec.lock or ios/ file."
+          fi
+          { echo "run=$run"; echo "xcode=$xcode"; } >> "$GITHUB_OUTPUT"
+
+  # The resolution the iOS delivery's fastlane runs first (`xcodebuild -resolvePackageDependencies` on the
+  # workspace), with the same Xcode. Fails if Xcode fails, or if it has to rewrite a committed Package.resolved
+  # (the pins no longer match the dependencies: commit what it wrote).
+  ios-packages:
+    name: iOS packages
+    needs: ios-plan
+    if: needs.ios-plan.outputs.run == 'true'
+    runs-on: macos-26
+    # macOS bills at 10x; a cold resolution takes a few minutes.
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Reach this version's files
+        uses: $/.github/actions/kskill-home
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        env:
+          XCODE_VERSION: ${{ needs.ios-plan.outputs.xcode }}
+        run: |
+          if [ -n "$XCODE_VERSION" ]; then
+            XCODE_APP="/Applications/Xcode_${XCODE_VERSION}.app"
+            if [ ! -d "$XCODE_APP" ]; then
+              echo "::error::$XCODE_APP is not on this runner image. Available:"
+              ls -d /Applications/Xcode_*.app 2>/dev/null || true
+              exit 1
+            fi
+            sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          else
+            echo "::notice::workflows.cd.ios.xcode is not set: resolving with the image's default Xcode."
+          fi
+          xcodebuild -version
+
+      - name: Read the Flutter version
+        id: flutter
+        run: bash "$KSKILL_HOME/.github/scripts/kskill-flutter-version.sh" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ steps.flutter.outputs.version }}
+          channel: ${{ steps.flutter.outputs.channel }}
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile
+
+      # Generates the Swift package Flutter adds for the plugins (ios/Flutter/ephemeral), as `flutter build` does.
+      - name: Generate the iOS project files
+        run: flutter build ios --config-only --release --no-codesign
+
+      - name: Resolve the Swift packages
+        working-directory: ios
+        run: |
+          set -o pipefail
+          if ! xcodebuild -resolvePackageDependencies -workspace Runner.xcworkspace -scheme Runner -configuration Release 2>&1 | tee "$RUNNER_TEMP/resolve.log"; then
+            echo "::error::xcodebuild could not resolve the iOS Swift packages: the iOS delivery would fail the same way. A stale ios/Runner.xcworkspace/xcshareddata/swiftpm/Package.resolved is the usual cause: see this step's log."
+            exit 1
+          fi
+          if grep -q "INTERNAL ERROR" "$RUNNER_TEMP/resolve.log"; then
+            echo "::error::xcodebuild reported an internal error resolving the iOS Swift packages: see this step's log."
+            exit 1
+          fi
+
+      - name: Check the committed pins
+        run: |
+          if ! git diff --exit-code --stat -- '*Package.resolved'; then
+            git diff -- '*Package.resolved'
+            echo "::error::Xcode rewrote a committed Package.resolved: the pins no longer match the dependencies. Run the same resolution locally and commit the result (see the diff above)."
+            exit 1
+          fi
+          echo "The committed Swift package pins match the dependencies."
+
