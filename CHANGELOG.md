@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.1](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.3.0...v2.3.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* Renovate's npm may fetch a direct git dependency ([#35](https://github.com/GuillaumeDerivery/kheona-skill/issues/35)) ([53733f7](https://github.com/GuillaumeDerivery/kheona-skill/commit/53733f7132de3a89f9364d14a8e69645a25abfc3))
+
 ## [2.3.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.2.2...v2.3.0) (2026-11-10)
 
 
