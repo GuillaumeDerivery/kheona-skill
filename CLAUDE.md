@@ -21,7 +21,9 @@ Every owner brings its own GitHub App and token broker; this repository never na
 - `Self-test` (`.github/workflows/self-test.yml`) runs the shared deploy and delivery from inside, as dry runs, on every PR and push to main: the deploy up to the build, the delivery's two lanes up to signing (on Linux, the secrets check reporting instead of failing).
 - Install the local guard once per clone: `bash scripts/kskill-guard-hook.sh install <list file>` (git hooks, and the Claude Code hook's configuration).
 - Workflows reach their own actions with `$/.github/actions/x`, and their files through `KSKILL_HOME` (`.github/actions/kskill-home`): the job's working directory is the caller's checkout.
-- A new secret or input goes through `.github/callers.json`, regenerated with it, so caller files stay exact.
+- A new secret or input goes through `.github/callers.json`, regenerated with it, so caller files stay exact. A secret a
+  repository must set also goes in `scripts/kskill-setup.sh` (its `need` list and its walkthrough, `guide`): that
+  command checks secrets by name only and never reads a value.
 - Third-party actions are pinned by SHA.
 - Issues and PRs: the first line says it all; anything more goes in a "Details" section.
 

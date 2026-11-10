@@ -18,7 +18,7 @@ Shared CI, delivery and repository automation for GitHub, built to work the same
 
 ## Five-minute adoption
 
-See [docs/adoption.md](docs/adoption.md). Once per owner: your own GitHub App and token broker. Then per repository, the setup command: `scripts/kskill-setup.sh [--apply] owner/repo <clone>` checks each step, does what it can, asks for each missing secret, and opens the PR that proves it.
+See [docs/adoption.md](docs/adoption.md). Once per owner: your own GitHub App and token broker. Then per repository, the setup command: `scripts/kskill-setup.sh [--apply] owner/repo <clone>` checks each step (`.kheona.json`, the topic, the App installed, release files, callers and `renovate.json`, settings, variables, secrets by name), does what it can, walks a person through the rest (an app's store secrets one at a time: what each is, where to find it, the exact `gh secret set` command; it never reads a value), and opens the PR that proves it. Safe to re-run: it resumes where it stopped.
 
 ```bash
 node scripts/kskill-callers.mjs write --repo ../my-repo --self owner/kheona-skill --sha <40-hex-commit> --version v2.0.0
