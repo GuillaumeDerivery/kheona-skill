@@ -159,7 +159,9 @@ git dependency at the version tag its callers use, nothing copied and no registr
   group moves this tag with the callers and the preset, in the same PR; a format change comes with its reformat there.
 - `.npmrc`: `allow-git` for that source (npm 12 refuses git dependencies by default). `allow-git=root` when the
   repository's own `package.json` is the only one naming it; `allow-git=all` when a `file:` dependency (lib as a
-  submodule) carries its own reference, which `root` refuses (`EALLOWGIT`).
+  submodule) carries its own reference, which `root` refuses (`EALLOWGIT`). Under `root`, npm 11 also refuses to
+  replace an installed git dependency: after a tag change, run that one `npm install --allow-git=all` (`npm ci` is
+  fine; Renovate's own npmrc allows all). A Dockerfile that installs copies `.npmrc` with the lock file.
 - The repository's own file is one line that re-exports the shared one, and overrides only what it must.
 
 The shared Prettier options: single quotes, `printWidth: 200`, double quotes in YAML.
