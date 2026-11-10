@@ -68,6 +68,12 @@ its `rule-0` status, with the App's token from the broker (the runner is in the 
 and `zizmor`. A required check passes on a skipped job; a status nobody set stays pending, so a fork's PR waits for the
 runner.
 
+On your own machine, the same guard and list run before anything leaves it:
+`bash scripts/kskill-guard-hook.sh install <list file>` in a clone adds git hooks (`pre-commit` on the files,
+`commit-msg` on the message, `pre-push` on the commits). With `kskill-guard-hook.sh claude` as a Claude Code
+`PreToolUse` hook on `Bash`, a `git` or `gh` command aimed at this repository is denied when its text, body file or
+pushed commits hold a term.
+
 ### On each repository with the `kheona-skill` or `kskill` topic
 
 Set only what the repository uses. A workflow that lacks a required secret fails with its name before any real work starts; an optional one only turns its feature off.
