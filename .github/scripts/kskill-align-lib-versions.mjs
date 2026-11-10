@@ -12,6 +12,8 @@
 //   lands in this project's lockfile and drifts the same way (knip 6.43.0 against lib's 6.42.1 failed the lib
 //   3.3.0 bump). Pinned by an `overrides` entry scoped to lib's package, so a project dependency that wants
 //   another major of the same tool (globals, eslint...) keeps its own copy.
+// - A package lib takes from git, a URL or a path (kheona-skill's shared configs: `github:owner/kheona-skill#<sha>`)
+//   has no registry version to align on: left alone, the project keeps its own reference (Renovate moves it).
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -23,7 +25,9 @@ const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
 const manifest = readJson('package.json');
 const libManifest = readJson(join(LIB, 'package.json'));
 const libLock = readJson(join(LIB, 'package-lock.json')).packages ?? {};
-const declaredByLib = [...Object.keys(libManifest.dependencies ?? {}), ...Object.keys(libManifest.devDependencies ?? {}), ...Object.keys(libManifest.peerDependencies ?? {})];
+const libSpecs = { ...libManifest.peerDependencies, ...libManifest.devDependencies, ...libManifest.dependencies };
+const fromRegistry = (spec) => !/^(git[+:]|github:|gitlab:|bitbucket:|https?:|file:|link:|workspace:)|^[\w.-]+\/[\w.-]+(#.*)?$/.test(String(spec));
+const declaredByLib = Object.keys(libSpecs).filter((name) => fromRegistry(libSpecs[name]));
 const libVersion = (name) => libLock[`node_modules/${name}`]?.version;
 const declaredHere = (name) => name in (manifest.dependencies ?? {}) || name in (manifest.devDependencies ?? {});
 
@@ -34,9 +38,9 @@ const specsFor = (section) =>
 
 // Transitive-only packages: pin through `overrides`. lib's runtime/peer packages at the top level (the project
 // runs them); lib's devDependencies under lib's own package name (only lib's copy is lib's).
-const libRuntime = [...Object.keys(libManifest.dependencies ?? {}), ...Object.keys(libManifest.peerDependencies ?? {})];
+const libRuntime = [...Object.keys(libManifest.dependencies ?? {}), ...Object.keys(libManifest.peerDependencies ?? {})].filter((name) => declaredByLib.includes(name));
 const transitive = libRuntime.filter((name) => !declaredHere(name) && libVersion(name));
-const transitiveDev = Object.keys(libManifest.devDependencies ?? {}).filter((name) => !libRuntime.includes(name) && !declaredHere(name) && libVersion(name));
+const transitiveDev = Object.keys(libManifest.devDependencies ?? {}).filter((name) => declaredByLib.includes(name)).filter((name) => !libRuntime.includes(name) && !declaredHere(name) && libVersion(name));
 // The project's own overrides stay; every pin for a package lib declares is recomputed from lib's lockfile.
 const ownOverrides = Object.entries(manifest.overrides ?? {}).filter(([name]) => !declaredByLib.includes(name) && name !== libManifest.name);
 const libPins = transitive.map((name) => [name, libVersion(name)]);
