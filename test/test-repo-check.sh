@@ -30,4 +30,19 @@ out=$(bash "$K" --json . "$HERE"); rc=$?
 check "... declared, it passes" "$rc" '^0$'
 echo 'mongodb://user:pw@db1.corp/x' > config.json; git add -A
 out=$(bash "$K" --json . "$HERE"); check "a committed MongoDB URI is listed" "$(jq -r '.mongo[0].path' <<<"$out")" 'config.json'
+# 10. delivery: a Flutter app whose callers deliver.
+rm -f config.json
+mkdir -p .github/workflows; printf 'on: push\n' > .github/workflows/kskill-deliver.yml
+echo '{"role":"library","workflows":{"local":{"mine.yml":"our own","kskill-deliver.yml":"t"},"cd":{"ios":{"lane":"store"}}}}' > .kheona.json; git add -A
+out=$(bash "$K" --json . "$HERE"); rc=$?
+check "delivery: no Fastfile, no Appfile: fails" "$rc $(jq -c '[.delivery[] | .path + " " + .problem]' <<<"$out")" '^1 \["android/fastlane/Fastfile missing","android/fastlane/Appfile missing","ios/fastlane/Fastfile missing","ios/fastlane/Appfile missing"\]$'
+mkdir -p android/fastlane ios/fastlane; touch android/fastlane/Appfile ios/fastlane/Appfile
+printf 'platform :android do\n  lane :beta do\n  end\nend\n' > android/fastlane/Fastfile
+printf 'platform :ios do\n  lane :beta do\n  end\nend\n' > ios/fastlane/Fastfile; git add -A
+out=$(bash "$K" --json . "$HERE"); rc=$?
+check "... the iOS Fastfile lacks the lane .kheona.json names" "$rc $(jq -c '[.delivery[] | .path + " " + .lane + " " + .problem]' <<<"$out")" '^1 \["ios/fastlane/Fastfile store no lane"\]$'
+printf 'platform :ios do\n  lane :store do\n  end\nend\n' > ios/fastlane/Fastfile; git add -A
+out=$(bash "$K" --json . "$HERE"); check "... every lane defined: no delivery finding" "$(jq -c .delivery <<<"$out")" '^\[\]$'
+echo '{"role":"library","workflows":{"local":{"mine.yml":"our own","kskill-deliver.yml":"t"},"cd":{"enabled":false}}}' > .kheona.json; rm -rf android ios; git add -A
+out=$(bash "$K" --json . "$HERE"); check "... workflows.cd.enabled false: nothing checked" "$(jq -c .delivery <<<"$out")" '^\[\]$'
 echo "$pass passed, $failed failed"; [ "$failed" = 0 ]

@@ -11,7 +11,23 @@ Every owner runs its own GitHub App and its own token broker. Nothing is shared:
 2. **The token broker**, a Cloudflare Worker (free plan) holding the App's key: [terraform/token-broker/README.md](../terraform/token-broker/README.md). Its policy lists `owner/kheona-skill` (the workflows' repository) in `workflowRepositories` and the owner in `owners`.
 3. **No organization variables:** on GitHub Free they don't reach private repositories, so every value below is set on each repository.
 
-## Each repository
+## Each repository: the setup command
+
+From a checkout of this repository at a release tag, and a clean clone of yours on its default branch:
+
+```bash
+KSKILL_BOT='<app-slug>[bot]' KSKILL_TOKEN_BROKER_URL=https://<your-broker> \
+  bash scripts/kskill-setup.sh owner/repo ../repo            # checks, changes nothing
+KSKILL_BOT='<app-slug>[bot]' KSKILL_TOKEN_BROKER_URL=https://<your-broker> \
+  bash scripts/kskill-setup.sh --apply owner/repo ../repo    # does what is missing
+```
+
+It goes through the steps below, says `ok`, `done` or `todo` for each, and is safe to re-run. With `--apply` in a
+terminal it asks for each missing secret one at a time (an app's store secrets: what each is, then its value, hidden,
+or a file it encodes), and it ends by opening one PR with what it wrote: that PR's CI is the proof. What only a person
+can do stays a `todo` line.
+
+The steps, by hand:
 
 1. **`.kheona.json`** at the root: at least `{"role": "project"}`. A service adds its deploy:
 
@@ -39,4 +55,4 @@ Every owner runs its own GitHub App and its own token broker. Nothing is shared:
 6. **Topic:** add `kheona-skill` or `kskill`. A library's consumers add the topic the library's `.kheona.json` names.
 7. **Prove it:** open a test PR. It must pass CI and review, and merge.
 
-`node scripts/kskill-callers.mjs check --repo .` says when a caller is missing or differs from what its version expects. Renovate opens one PR per release of this repository, moving every caller and the preset pin; when a version changes a caller's content, CI says so and the setup command rewrites it on that branch.
+`node scripts/kskill-callers.mjs check --repo .` says when a caller is missing or differs from what its version expects. Renovate opens one PR per release of this repository, moving every caller and the preset pin; when a version changes a caller's content, CI says so and `scripts/kskill-setup.sh --apply` (or `kskill-callers.mjs write`) rewrites it.
