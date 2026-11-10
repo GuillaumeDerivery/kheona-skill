@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.6.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.5.0...v2.6.0) (2026-11-10)
+
+
+### Features
+
+* **ci-flutter:** check the iOS Swift package pins and resolve them on pull requests ([#46](https://github.com/GuillaumeDerivery/kheona-skill/issues/46)) ([ca07de9](https://github.com/GuillaumeDerivery/kheona-skill/commit/ca07de99b783341d94d925c542bbe7cbabc56b2f))
+
+
+### Bug Fixes
+
+* Renovate's kheona-skill PR passes CI, in repositories that carry lib too ([#49](https://github.com/GuillaumeDerivery/kheona-skill/issues/49)) ([2c7db2f](https://github.com/GuillaumeDerivery/kheona-skill/commit/2c7db2f32ad6f6403817f53c1276ccee1eff47ea))
+* the Claude guard hook checks only commands that write ([#50](https://github.com/GuillaumeDerivery/kheona-skill/issues/50)) ([a17e275](https://github.com/GuillaumeDerivery/kheona-skill/commit/a17e275e1af6d789f5cfbe7d542d3f6cc6eda33b))
+* the lib bump leaves lib's git dependencies alone ([#48](https://github.com/GuillaumeDerivery/kheona-skill/issues/48)) ([264d98c](https://github.com/GuillaumeDerivery/kheona-skill/commit/264d98c4d3b521b729eeb2453d93fabfe1a44b54))
+
 ## [2.5.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.4.0...v2.5.0) (2026-11-10)
 
 
