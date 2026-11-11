@@ -85,17 +85,17 @@ Set only what the repository uses. A workflow that lacks a required secret fails
 | `SLACK_WEBHOOK_URL` | Deploy | Optional | Announces each deploy's start and result in a Slack channel. |
 | `SENTRY_AUTH_TOKEN` | Inbox, Flutter delivery | Optional | Reads and updates Sentry issues for the triage (`event:read`, `event:write`, `project:read`, `org:read`), and uploads an app's debug symbols. |
 | `ANDROID_KEYSTORE_BASE64` | Flutter delivery | Yes | The Android signing keystore, base64. |
-| `ANDROID_KEYSTORE_PASSWORD` | Flutter delivery | Yes | The keystore's password. Replaces `CM_KEYSTORE_PASSWORD`, still read as a deprecated fallback. |
-| `ANDROID_KEY_ALIAS` | Flutter delivery | Yes | The signing key's alias in the keystore. Replaces `CM_KEY_ALIAS`, still read as a deprecated fallback. |
-| `ANDROID_KEY_PASSWORD` | Flutter delivery | Yes | The signing key's password. Replaces `CM_KEY_PASSWORD`, still read as a deprecated fallback. |
-| `ANDROID_PLAY_STORE_JSON_KEY_BASE64` | Flutter delivery | Yes | The Google Play service account's JSON key, base64, for the upload. Replaces `PLAY_STORE_JSON_KEY_BASE64`, still read as a deprecated fallback. |
-| `APPLE_DIST_CERTIFICATE_P12_BASE64` | Flutter delivery | Yes | The Apple distribution certificate, `.p12`, base64. Replaces `IOS_DIST_CERTIFICATE_P12_BASE64`, still read as a deprecated fallback. |
-| `APPLE_DIST_CERTIFICATE_PASSWORD` | Flutter delivery | Optional | The `.p12`'s password. Unset for a `.p12` exported without one (GitHub cannot store an empty secret): the delivery imports it with an empty password, re-encoding an OpenSSL-made file first. Replaces `IOS_DIST_CERTIFICATE_PASSWORD`, still read as a deprecated fallback. |
-| `APPLE_API_KEY_ID` | Flutter delivery | Yes | The App Store Connect API key's id. Replaces `ASC_KEY_ID`, still read as a deprecated fallback. |
-| `APPLE_API_ISSUER_ID` | Flutter delivery | Yes | The App Store Connect issuer id. Replaces `ASC_ISSUER_ID`, still read as a deprecated fallback. |
-| `APPLE_API_KEY_BASE64` | Flutter delivery | Yes | The App Store Connect API key, `.p8`, base64, for the upload. Replaces `ASC_API_KEY_BASE64`, still read as a deprecated fallback. |
+| `ANDROID_KEYSTORE_PASSWORD` | Flutter delivery | Yes | The keystore's password. |
+| `ANDROID_KEY_ALIAS` | Flutter delivery | Yes | The signing key's alias in the keystore. |
+| `ANDROID_KEY_PASSWORD` | Flutter delivery | Yes | The signing key's password. |
+| `ANDROID_PLAY_STORE_JSON_KEY_BASE64` | Flutter delivery | Yes | The Google Play service account's JSON key, base64, for the upload. |
+| `APPLE_DIST_CERTIFICATE_P12_BASE64` | Flutter delivery | Yes | The Apple distribution certificate, `.p12`, base64. |
+| `APPLE_DIST_CERTIFICATE_PASSWORD` | Flutter delivery | Optional | The `.p12`'s password. Unset for a `.p12` exported without one (GitHub cannot store an empty secret): the delivery imports it with an empty password, re-encoding an OpenSSL-made file first. |
+| `APPLE_API_KEY_ID` | Flutter delivery | Yes | The App Store Connect API key's id. |
+| `APPLE_API_ISSUER_ID` | Flutter delivery | Yes | The App Store Connect issuer id. |
+| `APPLE_API_KEY_BASE64` | Flutter delivery | Yes | The App Store Connect API key, `.p8`, base64, for the upload. |
 
-Flutter delivery receives these through its caller, `kskill-deliver.yml`. Android ones start with `ANDROID_`, Apple ones with `APPLE_`; with only an old name set, each delivery warns that it is deprecated: set the new one to the same value, then delete the old.
+Flutter delivery receives these through its caller, `kskill-deliver.yml`. Android ones start with `ANDROID_`, Apple ones with `APPLE_`; the names before v2.9.0 (`CM_*`, `PLAY_STORE_*`, `IOS_DIST_*`, `ASC_*`) are no longer read.
 
 ### On the token broker
 

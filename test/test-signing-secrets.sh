@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
 # not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
-# The delivery's secrets' rename: Android ones start with ANDROID_, Apple ones with APPLE_ (from CM_*, a Codemagic
-# leftover, PLAY_STORE_*, IOS_DIST_* and ASC_*). The delivery takes both names, the new one wins, the lane gets both,
-# and the callers pass both, until every repository holds the new ones. And the iOS .p12's password is optional: GitHub
-# cannot store an empty secret, so a .p12 exported without one leaves it unset.
+# The delivery's secrets: Android ones start with ANDROID_, Apple ones with APPLE_. Their old names (before v2.9.0:
+# CM_*, PLAY_STORE_*, IOS_DIST_*, ASC_*) are not read any more, nor passed to the lane. And the iOS .p12's password is
+# optional: GitHub cannot store an empty secret, so a .p12 exported without one leaves it unset.
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")/.." && pwd); cd "$HERE" || exit 64
 W=.github/workflows/kskill-deliver-flutter.yml
@@ -12,60 +11,50 @@ pass=0 failed=0
 check() { if [[ $2 =~ $3 ]]; then pass=$((pass+1)); echo "ok   $1"; else failed=$((failed+1)); echo "FAIL $1 (got: $2)"; fi; }
 y() { ruby -ryaml -e 'w = YAML.load_file(ARGV[0]); puts eval(ARGV[1])' "$W" "$1"; }
 step() { y "w['jobs']['$1']['steps'].find { |s| s['name'] == '$2' }['env'].map { |k, v| \"#{k}=#{v}\" }.join(\"\\n\")"; }
-PAIRS="ANDROID_KEYSTORE_PASSWORD:CM_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS:CM_KEY_ALIAS ANDROID_KEY_PASSWORD:CM_KEY_PASSWORD
-  ANDROID_PLAY_STORE_JSON_KEY_BASE64:PLAY_STORE_JSON_KEY_BASE64 APPLE_DIST_CERTIFICATE_P12_BASE64:IOS_DIST_CERTIFICATE_P12_BASE64
-  APPLE_DIST_CERTIFICATE_PASSWORD:IOS_DIST_CERTIFICATE_PASSWORD APPLE_API_KEY_ID:ASC_KEY_ID APPLE_API_ISSUER_ID:ASC_ISSUER_ID
-  APPLE_API_KEY_BASE64:ASC_API_KEY_BASE64"
+OLD_RE='(CM|PLAY_STORE|IOS_DIST|ASC)_'
 
 declared=$(y '(w["on"] || w[true])["workflow_call"]["secrets"].keys.sort.join(" ")')
-for pair in $PAIRS; do
-  new=${pair%%:*} old=${pair#*:}
-  check "the delivery takes $new" "$declared" "(^| )$new( |$)"
-  check "... and still $old" "$declared" "(^| )$old( |$)"
-done
+check "the delivery takes the ANDROID_ and APPLE_ names, and the Sentry token" "$declared" \
+  '^ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_PLAY_STORE_JSON_KEY_BASE64 APPLE_API_ISSUER_ID APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_DIST_CERTIFICATE_P12_BASE64 APPLE_DIST_CERTIFICATE_PASSWORD SENTRY_AUTH_TOKEN$'
 check "the callers pass every secret the delivery takes" \
   "$(jq -r '."kskill-deliver-flutter.yml".secrets | sort | join(" ")' .github/callers.json)" "^$declared$"
-check "every new name starts with ANDROID_ or APPLE_" \
-  "$(tr ' ' '\n' <<<"$declared" | grep -vE '^(ANDROID|APPLE)_' | grep -vE '^(CM|PLAY_STORE|IOS_DIST|ASC)_' | tr '\n' ' ')" '^SENTRY_AUTH_TOKEN $'
+check "no old name left in the delivery" "$(grep -cE "(^|[^A-Z_])$OLD_RE" "$W")" '^0$'
 
-# Where a secret's value is used, the new name first; the lane gets both names of each value.
-either() { echo "\\\$\\{\\{ secrets\\.$1 \\|\\| secrets\\.$2 \\}\\}"; }
+# Each value from its one secret; the lane gets the new names only.
+one() { echo "\\\$\\{\\{ secrets\\.$1 \\}\\}"; }
 build=$(step android 'Build and upload to Google Play')
-for n in KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
-  check "the Android lane gets ANDROID_$n, the new secret first" "$build" "(^|"$'\n'")ANDROID_$n=$(either ANDROID_$n CM_$n)"
-  check "... and CM_$n, the same value" "$build" "(^|"$'\n'")CM_$n=$(either ANDROID_$n CM_$n)"
+for n in ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+  check "the Android lane gets $n" "$build" "(^|"$'\n'")$n=$(one $n)("$'\n'"|$)"
 done
 build=$(step ios 'Build and upload to TestFlight')
-for pair in APPLE_API_KEY_ID:ASC_KEY_ID APPLE_API_ISSUER_ID:ASC_ISSUER_ID; do
-  new=${pair%%:*} old=${pair#*:}
-  check "the iOS lane gets $new, the new secret first" "$build" "(^|"$'\n'")$new=$(either "$new" "$old")"
-  check "... and $old, the same value" "$build" "(^|"$'\n'")$old=$(either "$new" "$old")"
+for n in APPLE_API_KEY_ID APPLE_API_ISSUER_ID; do
+  check "the iOS lane gets $n" "$build" "(^|"$'\n'")$n=$(one $n)("$'\n'"|$)"
 done
-check "the Play key decoded from the new secret first" "$(step android 'Decode the Play Console key')" \
-  "^PLAY_STORE_JSON_KEY_BASE64=$(either ANDROID_PLAY_STORE_JSON_KEY_BASE64 PLAY_STORE_JSON_KEY_BASE64)$"
+check "the Play key decoded from its secret" "$(step android 'Decode the Play Console key')" \
+  "^ANDROID_PLAY_STORE_JSON_KEY_BASE64=$(one ANDROID_PLAY_STORE_JSON_KEY_BASE64)$"
 cert=$(step ios 'Import the distribution certificate')
-check "the .p12 from the new secret first" "$cert" "CERTIFICATE_BASE64=$(either APPLE_DIST_CERTIFICATE_P12_BASE64 IOS_DIST_CERTIFICATE_P12_BASE64)"
-check "... its password too" "$cert" "CERTIFICATE_PASSWORD=$(either APPLE_DIST_CERTIFICATE_PASSWORD IOS_DIST_CERTIFICATE_PASSWORD)"
-check "the .p8 from the new secret first" "$(step ios 'Write the App Store Connect key')" \
-  "^APPLE_API_KEY_BASE64=$(either APPLE_API_KEY_BASE64 ASC_API_KEY_BASE64)$"
-for v in ANDROID_KEYSTORE_PATH CM_KEYSTORE_PATH ANDROID_PLAY_STORE_JSON_KEY_PATH PLAY_STORE_JSON_KEY_PATH APPLE_API_KEY_FILEPATH ASC_KEY_FILEPATH; do
+check "the .p12 from its secret" "$cert" "CERTIFICATE_BASE64=$(one APPLE_DIST_CERTIFICATE_P12_BASE64)"
+check "... its password too" "$cert" "CERTIFICATE_PASSWORD=$(one APPLE_DIST_CERTIFICATE_PASSWORD)"
+check "the .p8 from its secret" "$(step ios 'Write the App Store Connect key')" \
+  "^APPLE_API_KEY_BASE64=$(one APPLE_API_KEY_BASE64)$"
+for v in ANDROID_KEYSTORE_PATH ANDROID_PLAY_STORE_JSON_KEY_PATH APPLE_API_KEY_FILEPATH; do
   check "the lane gets the file path $v" "$(grep -c "echo \"$v=\\\$[A-Z_]*PATH\" >> \"\\\$GITHUB_ENV\"" "$W")" '^1$'
 done
+check "... and no other" "$(grep -c '>> "$GITHUB_ENV"' <<<"$(grep -E 'echo "[A-Z_]*PATH=' "$W")")" '^3$'
 
-# The secrets check, run as the step runs: the new name wins, an old one alone warns, both missing fail by new name.
+# The secrets check, run as the step runs: an old name does not count, the missing ones fail by name.
 script=$(y 'w["jobs"]["android"]["steps"].find { |s| s["name"] == "Check the signing secrets" }["run"]')
 run() { env -i PATH="$PATH" REPO=owner/repo DRY_RUN=false ANDROID_KEYSTORE_BASE64=k "$@" bash -c "$script" 2>&1; echo "rc=$?"; }
 out=$(run ANDROID_KEYSTORE_PASSWORD=a ANDROID_KEY_ALIAS=b ANDROID_KEY_PASSWORD=c ANDROID_PLAY_STORE_JSON_KEY_BASE64=p)
-check "android, the new names: passes, no warning" "$out" '^rc=0$'
+check "android, every secret: passes, nothing said" "$out" '^rc=0$'
 out=$(run CM_KEYSTORE_PASSWORD=a CM_KEY_ALIAS=b CM_KEY_PASSWORD=c PLAY_STORE_JSON_KEY_BASE64=p)
-check "android, the old names alone: passes" "$out" 'rc=0$'
-check "... with a deprecation warning each" "$(grep -c '::warning::.* is deprecated' <<<"$out")" '^4$'
-check "... naming the new one" "$out" '::warning::PLAY_STORE_JSON_KEY_BASE64 is deprecated: set ANDROID_PLAY_STORE_JSON_KEY_BASE64 to the same value, then delete PLAY_STORE_JSON_KEY_BASE64\.'
-out=$(run ANDROID_KEYSTORE_PASSWORD=a ANDROID_KEY_ALIAS=b CM_KEY_PASSWORD=c ANDROID_PLAY_STORE_JSON_KEY_BASE64=p)
-check "android, a mix: passes, one warning" "$(grep -c '::warning::' <<<"$out"):$(tail -1 <<<"$out")" '^1:rc=0$'
-out=$(run ANDROID_KEYSTORE_PASSWORD=a)
-check "android, missing: fails by the new names" "$out" 'Missing repository secret\(s\): ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_PLAY_STORE_JSON_KEY_BASE64\.'
+check "android, the old names: fails by the new ones" "$out" 'Missing repository secret\(s\): ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_PLAY_STORE_JSON_KEY_BASE64\.'
 check "... exit 1" "$(tail -1 <<<"$out")" '^rc=1$'
+out=$(run ANDROID_KEYSTORE_PASSWORD=a)
+check "android, missing: fails by name" "$out" 'Missing repository secret\(s\): ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_PLAY_STORE_JSON_KEY_BASE64\.'
+check "... exit 1" "$(tail -1 <<<"$out")" '^rc=1$'
+out=$(run DRY_RUN=true)
+check "android, a dry run: says, passes" "$(grep -c '::notice::Dry run' <<<"$out"):$(tail -1 <<<"$out")" '^1:rc=0$'
 
 # iOS: the same, and the .p12's password is optional, the .p12 itself is not.
 check "the delivery takes APPLE_DIST_CERTIFICATE_PASSWORD, not required" \
@@ -73,28 +62,24 @@ check "the delivery takes APPLE_DIST_CERTIFICATE_PASSWORD, not required" \
 script=$(y 'w["jobs"]["ios"]["steps"].find { |s| s["name"] == "Check the signing secrets" }["run"]')
 ios() { env -i PATH="$PATH" REPO=owner/repo DRY_RUN=false "$@" bash -c "$script" 2>&1; echo "rc=$?"; }
 NEW="APPLE_API_KEY_ID=i APPLE_API_ISSUER_ID=s APPLE_API_KEY_BASE64=k"
-OLD="ASC_KEY_ID=i ASC_ISSUER_ID=s ASC_API_KEY_BASE64=k"
 # shellcheck disable=SC2086 # why: one NAME=value per word
 {
 out=$(ios $NEW APPLE_DIST_CERTIFICATE_P12_BASE64=c APPLE_DIST_CERTIFICATE_PASSWORD=p)
-check "ios, the new names, .p12 and password: passes, nothing said" "$out" '^rc=0$'
-out=$(ios $OLD IOS_DIST_CERTIFICATE_P12_BASE64=c IOS_DIST_CERTIFICATE_PASSWORD=p)
-check "ios, the old names alone: passes" "$(tail -1 <<<"$out")" '^rc=0$'
-check "... with a deprecation warning each, the password's included" "$(grep -c '::warning::.* is deprecated' <<<"$out")" '^5$'
-check "... naming the new one" "$out" '::warning::ASC_KEY_ID is deprecated: set APPLE_API_KEY_ID to the same value, then delete ASC_KEY_ID\.'
-check "... no notice: the old password counts" "$(grep -c '::notice::' <<<"$out")" '^0$'
+check "ios, .p12 and password: passes, nothing said" "$out" '^rc=0$'
+out=$(ios ASC_KEY_ID=i ASC_ISSUER_ID=s ASC_API_KEY_BASE64=k IOS_DIST_CERTIFICATE_P12_BASE64=c IOS_DIST_CERTIFICATE_PASSWORD=p)
+check "ios, the old names: fails by the new ones" "$out" 'secret\(s\): APPLE_DIST_CERTIFICATE_P12_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER_ID APPLE_API_KEY_BASE64\. '
+check "... exit 1" "$(tail -1 <<<"$out")" '^rc=1$'
 out=$(ios $NEW APPLE_DIST_CERTIFICATE_P12_BASE64=c)
 check "ios: .p12 without a password: passes" "$(tail -1 <<<"$out")" '^rc=0$'
 check "... saying it imports with an empty password" "$out" '::notice::APPLE_DIST_CERTIFICATE_PASSWORD is not set: the \.p12 is imported with an empty password\.'
 check "... no warning" "$(grep -c '::warning::' <<<"$out")" '^0$'
-out=$(ios $NEW IOS_DIST_CERTIFICATE_P12_BASE64=c)
-check "ios: the old .p12 alone, no password: passes, a warning and the notice" \
-  "$(grep -c '::warning::IOS_DIST_CERTIFICATE_P12_BASE64 is deprecated' <<<"$out"):$(grep -c '::notice::' <<<"$out"):$(tail -1 <<<"$out")" '^1:1:rc=0$'
+out=$(ios $NEW APPLE_DIST_CERTIFICATE_P12_BASE64=c IOS_DIST_CERTIFICATE_PASSWORD=p)
+check "ios: the old password does not count: the notice" "$(grep -c '::notice::APPLE_DIST_CERTIFICATE_PASSWORD is not set' <<<"$out"):$(tail -1 <<<"$out")" '^1:rc=0$'
 out=$(ios $NEW APPLE_DIST_CERTIFICATE_PASSWORD=p)
-check "ios: no .p12: fails by its new name" "$out" 'Missing repository secret\(s\): APPLE_DIST_CERTIFICATE_P12_BASE64\.'
-check "... exit 1" "$(tail -1 <<<"$out")" '^rc=1$'
+check "ios: no .p12: fails by name" "$out" 'Missing repository secret\(s\): APPLE_DIST_CERTIFICATE_P12_BASE64\.'
+check "... no notice without a .p12" "$(grep -c '::notice::' <<<"$out"):$(tail -1 <<<"$out")" '^0:rc=1$'
 out=$(ios)
-check "ios: nothing: the new names, never the password" "$out" 'secret\(s\): APPLE_DIST_CERTIFICATE_P12_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER_ID APPLE_API_KEY_BASE64\. '
+check "ios: nothing: every name, never the password" "$out" 'secret\(s\): APPLE_DIST_CERTIFICATE_P12_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER_ID APPLE_API_KEY_BASE64\. '
 check "... exit 1" "$(tail -1 <<<"$out")" '^rc=1$'
 }
 

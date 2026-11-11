@@ -63,13 +63,11 @@ check "... macOS's openssl is LibreSSL" "$out" '/usr/bin/openssl is LibreSSL and
 check "... Homebrew's OpenSSL, -legacy for RC2" "$out" 'openssl@3\)/bin/openssl" pkcs12 -in cert\.p12 -noout -info, adding -legacy'
 
 check "... keytool from Android Studio" "$out" 'Android Studio\.app/Contents/jbr/Contents/Home/bin/keytool'
-check "... the signing secrets under the names this version's workflow reads" "$out" 'todo  secret ANDROID_KEY_ALIAS'
+check "... the signing secrets under their ANDROID_ and APPLE_ names" "$out" 'todo  secret ANDROID_KEY_ALIAS'
 check "... no secret set, no value read" "$(grep -c 'secret set' "$T/log")" '^0$'
 check "... the script never reads a value" "$(grep -cE 'read -[a-z]*s' "$S")" '^0$'
 check "... the PR left to a person when it cannot push" "$out" 'todo  the PR'
-echo 'x: ${{ secrets.ANDROID_KEY_ALIAS }} ${{ secrets.ANDROID_KEY_PASSWORD }} ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}' > "$T/deliver.yml"
-out=$(KSKILL_DELIVER_WORKFLOW="$T/deliver.yml" run)
-check "a workflow reading ANDROID_*: those names asked" "$out" 'todo  secret ANDROID_KEY_ALIAS'$'\n''.*'$'\n''.*'$'\n''  Set it: gh secret set ANDROID_KEY_ALIAS'
+check "... with the command that sets it" "$out" 'todo  secret ANDROID_KEY_ALIAS'$'\n''.*'$'\n''.*'$'\n''  Set it: gh secret set ANDROID_KEY_ALIAS'
 
 # A person at the keyboard: the App confirmed (remembered), one secret set while it waits, one skipped, then q.
 echo 'ANDROID_KEYSTORE_BASE64 ANDROID_PLAY_STORE_JSON_KEY_BASE64 APPLE_DIST_CERTIFICATE_P12_BASE64 APPLE_DIST_CERTIFICATE_PASSWORD APPLE_API_KEY_ID APPLE_API_ISSUER_ID' > "$FAKE/secrets"
@@ -83,18 +81,25 @@ check "... q stops: the rest left for the next run" "$out" 'todo  secret ANDROID
 check "... exit 1" "$rc" '^1$'
 check "... still no secret set by the script" "$(grep -c 'secret set' "$T/log")" '^0$'
 
-# Done: either name of a secret counts (an old one said deprecated), and the App is not asked again.
-echo 'ANDROID_KEYSTORE_BASE64 CM_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD PLAY_STORE_JSON_KEY_BASE64 IOS_DIST_CERTIFICATE_P12_BASE64 ASC_KEY_ID APPLE_API_ISSUER_ID APPLE_API_KEY_BASE64' > "$FAKE/secrets"
+# An old name (before v2.9.0) no longer counts: its new name is asked for, and the leftover said, to delete.
+echo 'ANDROID_KEYSTORE_BASE64 CM_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_PLAY_STORE_JSON_KEY_BASE64 APPLE_DIST_CERTIFICATE_P12_BASE64 ASC_KEY_ID APPLE_API_ISSUER_ID APPLE_API_KEY_BASE64' > "$FAKE/secrets"
 rm -f "$FAKE/later"
+out=$(run)
+check "an old name alone: the new one missing" "$(grep -oE 'todo  secret [A-Z0-9_]+$' <<<"$out" | tr '\n' ' ')" '^todo  secret ANDROID_KEYSTORE_PASSWORD todo  secret APPLE_API_KEY_ID $'
+check "... each old one said, with its new name and the command that deletes it" "$out" 'note  secret ASC_KEY_ID is no longer read: APPLE_API_KEY_ID replaces it; once APPLE_API_KEY_ID is set, gh secret delete ASC_KEY_ID --repo o/app'
+check "... the two old ones, no new one" "$(grep -oE 'note  secret [A-Z0-9_]+' <<<"$out" | sort | tr '\n' ' ')" \
+  '^note  secret ASC_KEY_ID note  secret CM_KEYSTORE_PASSWORD $'
+check "... nothing deleted by the script" "$(grep -c 'secret delete' "$T/log")" '^0$'
+
+# Done: the new names set (no .p12 password), an old one left beside them said, and the App is not asked again.
+echo 'ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_PLAY_STORE_JSON_KEY_BASE64 APPLE_DIST_CERTIFICATE_P12_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER_ID APPLE_API_KEY_BASE64 IOS_DIST_CERTIFICATE_PASSWORD' > "$FAKE/secrets"
 out=$(KSKILL_SETUP_TTY=1 run --apply </dev/null)
-check "a re-run with the secrets set, old and new names mixed, no .p12 password: ok" "$out" 'ok    secrets \(9 needed, all set\)'
-check "... each old name said deprecated, with its new name" "$out" 'note  secret ASC_KEY_ID is deprecated: set APPLE_API_KEY_ID to the same value \(gh secret set APPLE_API_KEY_ID --repo o/app\), then delete ASC_KEY_ID'
-check "... the four old ones, no new one" "$(grep -c '^note  secret' <<<"$out"):$(grep -oE 'note  secret [A-Z0-9_]+' <<<"$out" | sort | tr '\n' ' ')" \
-  '^4:note  secret ASC_KEY_ID note  secret CM_KEYSTORE_PASSWORD note  secret IOS_DIST_CERTIFICATE_P12_BASE64 note  secret PLAY_STORE_JSON_KEY_BASE64 $'
+check "a re-run with the secrets set, no .p12 password: ok" "$out" 'ok    secrets \(9 needed, all set\)'
+check "... the old .p12 password said, to delete" "$(grep '^note  secret' <<<"$out")" '^note  secret IOS_DIST_CERTIFICATE_PASSWORD is no longer read: APPLE_DIST_CERTIFICATE_PASSWORD replaces it'
 check "... the App not asked again" "$out" 'ok    App app-bot installed \(confirmed by a person\)'
 check "... the variables read back from the repository" "$out" 'ok    variable KSKILL_BOT'
 check "... and the callers ok" "$out" 'ok    callers at v9\.9\.9'
 echo 'ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_PLAY_STORE_JSON_KEY_BASE64 APPLE_DIST_CERTIFICATE_P12_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER_ID APPLE_API_KEY_BASE64' > "$FAKE/secrets"
 out=$(run)
-check "the new names only: ok, nothing said deprecated" "$(grep -c '^note' <<<"$out"):$(grep -o 'ok    secrets.*' <<<"$out")" '^0:ok    secrets \(9 needed, all set\)$'
+check "the new names only: ok, nothing said" "$(grep -c '^note' <<<"$out"):$(grep -o 'ok    secrets.*' <<<"$out")" '^0:ok    secrets \(9 needed, all set\)$'
 echo "$pass passed, $failed failed"; [ "$failed" = 0 ]
