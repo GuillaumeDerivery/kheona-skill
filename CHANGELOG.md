@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.10.1](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.10.0...v2.10.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* **inbox:** submodules clone with the library token after the per-owner helper is installed ([#69](https://github.com/GuillaumeDerivery/kheona-skill/issues/69)) ([38df025](https://github.com/GuillaumeDerivery/kheona-skill/commit/38df025671bf2be205688cc21134af772767c986))
+
 ## [2.10.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.9.0...v2.10.0) (2026-11-11)
 
 
