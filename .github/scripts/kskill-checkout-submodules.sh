@@ -19,6 +19,10 @@ export GIT_CONFIG_KEY_0="url.https://x-access-token:${SUBMODULE_TOKEN}@github.co
 export GIT_CONFIG_VALUE_0="git@github.com:"
 export GIT_CONFIG_KEY_1="url.https://x-access-token:${SUBMODULE_TOKEN}@github.com/.insteadOf"
 export GIT_CONFIG_VALUE_1="https://github.com/"
+# Without the global config: git applies one insteadOf, the longest match, the first one read on a tie, and a job that
+# ran kskill-app-tokens.mjs --install has a global git@github.com: -> https://github.com/ rewrite read before these,
+# whose credential helper holds no token for the library's owner ("could not read Username").
+export GIT_CONFIG_GLOBAL=/dev/null
 
 git submodule sync --recursive
 git submodule update --init --recursive
