@@ -38,6 +38,13 @@ out=$(node "$C" check --repo "$R" --json); check "an unknown kskill file fails" 
 R=$T/fl; mkdir -p "$R"; : > "$R/pubspec.yaml"; echo '{"role":"project"}' > "$R/.kheona.json"; w "$R"
 check "Flutter: delivery, no ship" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-claude.yml kskill-deliver.yml kskill-inbox.yml kskill-main.yml kskill-pr.yml kskill-release-please.yml $'
 check "... main is the same shared workflow" "$(grep -c 'kskill-main.yml@' "$R/.github/workflows/kskill-main.yml")" '^1$'
+for pair in ANDROID_KEYSTORE_PASSWORD:CM_KEYSTORE_PASSWORD ANDROID_PLAY_STORE_JSON_KEY_BASE64:PLAY_STORE_JSON_KEY_BASE64 \
+  APPLE_DIST_CERTIFICATE_P12_BASE64:IOS_DIST_CERTIFICATE_P12_BASE64 APPLE_DIST_CERTIFICATE_PASSWORD:IOS_DIST_CERTIFICATE_PASSWORD \
+  APPLE_API_KEY_ID:ASC_KEY_ID APPLE_API_ISSUER_ID:ASC_ISSUER_ID APPLE_API_KEY_BASE64:ASC_API_KEY_BASE64; do
+  new=${pair%%:*} old=${pair#*:}
+  check "... the delivery gets $new and its old name $old" \
+    "$(grep -cE "^      ($new: \\$\\{\\{ secrets\\.$new|$old: \\$\\{\\{ secrets\\.$old) \\}\\}$" "$R/.github/workflows/kskill-deliver.yml")" '^2$'
+done
 check "... the stack: flutter, deploys nothing from main" "$(node "$C" stack --repo "$R" | tr '\n' ' ')" '^stack=flutter deploys=false $'
 check "... delivery pinned by the version tag" "$(grep 'uses:' "$R/.github/workflows/kskill-deliver.yml")" '@v1.2.3$'
 node "$C" check --repo "$R"; check "Flutter: check passes with a tag pin" "$?" '^0$'

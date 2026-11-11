@@ -152,12 +152,17 @@ Flutter-specific K2.3/K2.4 notes:
   `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. The lane gets `ANDROID_KEYSTORE_PATH` and
   the three values; `android/app/build.gradle(.kts)` reads `ANDROID_*` first. The old Codemagic names (`CM_*`) are
   still accepted as a deprecated fallback and still exported to the lane, until every app holds the new secrets.
+  The Play upload key is `ANDROID_PLAY_STORE_JSON_KEY_BASE64` (was `PLAY_STORE_JSON_KEY_BASE64`); the lane gets its
+  path as `ANDROID_PLAY_STORE_JSON_KEY_PATH` (and `PLAY_STORE_JSON_KEY_PATH`), read by `android/fastlane/Appfile`.
   Keystores don't expire, but **losing one is unrecoverable** — confirm an off-machine backup exists.
 - iOS: an Apple Distribution certificate imported per run + a profile fetched from App Store Connect.
-  `IOS_DIST_CERTIFICATE_P12_BASE64` is required, `IOS_DIST_CERTIFICATE_PASSWORD` only when the `.p12` has a password
+  `APPLE_DIST_CERTIFICATE_P12_BASE64` is required, `APPLE_DIST_CERTIFICATE_PASSWORD` only when the `.p12` has a password
   (GitHub cannot store an empty secret). Without one, `security import -P ""` takes a Keychain Access export as it is
   but refuses any OpenSSL-made one (`-legacy` or AES, even unencrypted): the step re-encodes it under a generated
-  password with OpenSSL 3, then imports that.
+  password with OpenSSL 3, then imports that. The App Store Connect key is `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID`,
+  `APPLE_API_KEY_BASE64`; the lane gets `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID` and the `.p8`'s path
+  `APPLE_API_KEY_FILEPATH`, which `ios/fastlane/Fastfile` reads first. The old names (`IOS_DIST_*`, `ASC_*`; lane
+  `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_FILEPATH`) are a deprecated fallback, still exported, like `CM_*`.
   **Certificates expire yearly and Apple caps you at 3 active** — record the expiry somewhere visible.
 - App Store Connect API key **role** matters: App Manager fetches an existing profile; Xcode cloud
   signing (`-allowProvisioningUpdates`) needs Admin.

@@ -35,6 +35,7 @@ TODO=0
 ok() { printf 'ok    %s\n' "$1"; }
 did() { printf 'done  %s\n' "$1"; }
 todo() { printf 'todo  %s\n' "$1"; TODO=1; }
+note() { printf 'note  %s\n' "$1"; }
 cfg() { jq -r "$1 // empty" "$DIR/.kheona.json" 2>/dev/null; }
 stack() {
   if [ -f "$DIR/pubspec.yaml" ]; then echo flutter; elif [ -f "$DIR/package.json" ]; then echo node
@@ -136,15 +137,19 @@ for v in KSKILL_BOT KSKILL_TOKEN_BROKER_URL; do
 done
 
 # 8. Secrets, names only: the ones a workflow here fails without. Each is "NAME" or "NAME|OTHER" (either name counts:
-# the Android signing secrets are moving from their CM_* names, a Codemagic leftover, to ANDROID_*; the name asked for
-# is the one this version's deliver workflow reads first).
+# the delivery's secrets are moving to ANDROID_* and APPLE_* names, from CM_* (a Codemagic leftover), PLAY_STORE_*,
+# IOS_DIST_* and ASC_*; the name asked for is the one this version's deliver workflow reads first).
 have=$(gh secret list --repo "$REPO" --json name --jq '[.[].name] | join(" ")' 2>/dev/null || echo '?')
 deliver=${KSKILL_DELIVER_WORKFLOW:-$SKILL/.github/workflows/kskill-deliver-flutter.yml}
-signing() { if grep -q "secrets\.ANDROID_$1" "$deliver" 2>/dev/null; then echo "ANDROID_$1|CM_$1"; else echo "CM_$1|ANDROID_$1"; fi; }
+pick() { if grep -q "secrets\.$1" "$deliver" 2>/dev/null; then echo "$1|$2"; else echo "$2|$1"; fi; }
+p12pw=$(pick APPLE_DIST_CERTIFICATE_PASSWORD IOS_DIST_CERTIFICATE_PASSWORD); p12pw=${p12pw%%|*}
 need=()
 if [ -f "$DIR/.github/workflows/kskill-deliver.yml" ] && [ "$(cfg .workflows.cd.enabled)" != false ]; then
-  [ "$(cfg .workflows.cd.android.enabled)" = false ] || need+=(ANDROID_KEYSTORE_BASE64 "$(signing KEYSTORE_PASSWORD)" "$(signing KEY_ALIAS)" "$(signing KEY_PASSWORD)" PLAY_STORE_JSON_KEY_BASE64)
-  [ "$(cfg .workflows.cd.ios.enabled)" = false ] || need+=(IOS_DIST_CERTIFICATE_P12_BASE64 ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_BASE64)
+  [ "$(cfg .workflows.cd.android.enabled)" = false ] || need+=(ANDROID_KEYSTORE_BASE64
+    "$(pick ANDROID_KEYSTORE_PASSWORD CM_KEYSTORE_PASSWORD)" "$(pick ANDROID_KEY_ALIAS CM_KEY_ALIAS)"
+    "$(pick ANDROID_KEY_PASSWORD CM_KEY_PASSWORD)" "$(pick ANDROID_PLAY_STORE_JSON_KEY_BASE64 PLAY_STORE_JSON_KEY_BASE64)")
+  [ "$(cfg .workflows.cd.ios.enabled)" = false ] || need+=("$(pick APPLE_DIST_CERTIFICATE_P12_BASE64 IOS_DIST_CERTIFICATE_P12_BASE64)"
+    "$(pick APPLE_API_KEY_ID ASC_KEY_ID)" "$(pick APPLE_API_ISSUER_ID ASC_ISSUER_ID)" "$(pick APPLE_API_KEY_BASE64 ASC_API_KEY_BASE64)")
 fi
 if [ -f "$DIR/.github/workflows/kskill-deploy.yml" ]; then
   for env in staging prod; do
@@ -174,33 +179,33 @@ guide() {
     *_KEY_PASSWORD)
       echo "  What: the upload key's own password."
       echo "  Pitfall: a PKCS12 keystore (keytool's default since Java 9) has one password: the key's is the keystore's." ;;
-    PLAY_STORE_JSON_KEY_BASE64)
+    *PLAY_STORE_JSON_KEY_BASE64)
       echo "  What: a Google Cloud service account's JSON key, allowed to release this app on Google Play, base64 on one line."
       echo "  Where: Google Cloud console, IAM and admin, Service accounts, the account, Keys, Add key, JSON (downloaded once)."
       echo "    Then Play Console, Users and permissions, invite the account's e-mail with the release permissions on this app."
       echo "  Pitfall: the Google Play Android Developer API must be enabled in that Cloud project; an organization policy"
       echo "    (iam.disableServiceAccountKeyCreation) can forbid creating keys."
       file=play-service-account.json ;;
-    IOS_DIST_CERTIFICATE_P12_BASE64)
+    *_DIST_CERTIFICATE_P12_BASE64)
       echo "  What: the Apple Distribution certificate with its private key, exported as .p12, base64 on one line."
       echo "  Where: Keychain Access on the Mac that created it, My Certificates, \"Apple Distribution: ...\": expand it,"
       echo "    select the certificate and its key, Export 2 items, .p12. None there: developer.apple.com, Certificates, +,"
       echo "    Apple Distribution, from a request made in Keychain Access (Certificate Assistant)."
-      echo "  Password: exported with one, set it too: gh secret set IOS_DIST_CERTIFICATE_PASSWORD --repo $REPO."
-      echo "    Without one, leave IOS_DIST_CERTIFICATE_PASSWORD unset (GitHub cannot store an empty secret): the delivery"
+      echo "  Password: exported with one, set it too: gh secret set $p12pw --repo $REPO."
+      echo "    Without one, leave $p12pw unset (GitHub cannot store an empty secret): the delivery"
       echo "    imports the .p12 with an empty password, re-encoding it first when it was made with OpenSSL."
       echo "  Pitfall: to look inside it, macOS's /usr/bin/openssl is LibreSSL and cannot read a modern PKCS#12:"
       echo "    use Homebrew's OpenSSL 3, \"\$(brew --prefix openssl@3)/bin/openssl\" pkcs12 -in cert.p12 -noout -info, adding -legacy"
       echo "    for an older RC2-encrypted file."
       file=cert.p12 ;;
-    ASC_KEY_ID)
+    APPLE_API_KEY_ID|ASC_KEY_ID)
       echo "  What: the App Store Connect API key's id (10 characters)."
       echo "  Where: App Store Connect, Users and Access, Integrations, App Store Connect API, Team Keys: the Key ID column."
       echo "    A new key: +, access App Manager (never Admin)." ;;
-    ASC_ISSUER_ID)
+    APPLE_API_ISSUER_ID|ASC_ISSUER_ID)
       echo "  What: the App Store Connect issuer id (a UUID)."
       echo "  Where: the same page, Issuer ID, above the keys." ;;
-    ASC_API_KEY_BASE64)
+    APPLE_API_KEY_BASE64|ASC_API_KEY_BASE64)
       echo "  What: that API key's private key, AuthKey_<id>.p8, base64 on one line."
       echo "  Pitfall: App Store Connect lets you download it once, when the key is made: lost, revoke it and make another."
       file=AuthKey_XXXXXXXXXX.p8 ;;
@@ -215,6 +220,12 @@ for s in $(printf '%s\n' "${need[@]+"${need[@]}"}" | awk '!seen[$0]++'); do
   found=false; IFS='|' read -r -a alts <<<"$s"
   for a in "${alts[@]}"; do [[ " $have " == *" $a "* ]] && found=true; done
   $found || missing+=("${alts[0]}")
+  # Only an old name set: it still works, with a deprecation warning at each delivery.
+  if [ "$have" != '?' ] && [ ${#alts[@]} -gt 1 ] && [[ " $have " != *" ${alts[0]} "* ]]; then
+    for a in "${alts[@]:1}"; do
+      [[ " $have " == *" $a "* && $a =~ ^(CM|PLAY_STORE|IOS_DIST|ASC)_ ]] && note "secret $a is deprecated: set ${alts[0]} to the same value (gh secret set ${alts[0]} --repo $REPO), then delete $a"
+    done
+  fi
 done
 if [ "$have" = '?' ]; then todo "secrets unreadable: does this login have admin on $REPO?"
 elif [ ${#missing[@]} = 0 ]; then ok "secrets (${#need[@]} needed, all set)"

@@ -34,12 +34,13 @@ so a run stopped anywhere resumes where it stopped. What only a person can do, i
   find it, the exact command, and what goes wrong. With `--apply` in a terminal it waits while you run the command in
   another terminal (Enter: check the name again, `s`: skip, `q`: stop here), one secret at a time. **It never reads,
   asks for, prints or stores a value**: `gh secret set NAME --repo owner/repo` asks for it, hidden, and a file is
-  encoded straight into gh: `base64 < cert.p12 | tr -d '\n' | gh secret set IOS_DIST_CERTIFICATE_P12_BASE64 --repo owner/repo`.
+  encoded straight into gh: `base64 < cert.p12 | tr -d '\n' | gh secret set APPLE_DIST_CERTIFICATE_P12_BASE64 --repo owner/repo`.
 - **A Flutter app's store secrets** (Android: the upload keystore, its password, alias and key password, the Play
   service account's JSON key; iOS: the distribution `.p12` and its password if it has one, the App Store Connect key id,
-  issuer id and `.p8`). The Android signing secrets count under either name, `ANDROID_KEYSTORE_PASSWORD`,
-  `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` or their older `CM_*` names; it asks for the ones this version's deliver
-  workflow reads. The pitfalls it names: a `.p12` without a password leaves `IOS_DIST_CERTIFICATE_PASSWORD` unset
+  issuer id and `.p8`). Android ones are named `ANDROID_*`, Apple ones `APPLE_*`; each counts under either name, the new
+  one or its older one (`CM_*`, `PLAY_STORE_*`, `IOS_DIST_*`, `ASC_*`), and an old one alone is said deprecated, with
+  the command that sets the new one. It asks for the names this version's deliver workflow reads. The pitfalls it names:
+  a `.p12` without a password leaves `APPLE_DIST_CERTIFICATE_PASSWORD` unset
   (GitHub cannot store an empty secret); macOS's `/usr/bin/openssl` is LibreSSL and cannot read a modern PKCS#12
   (Homebrew's OpenSSL 3 can, with `-legacy` for an older RC2-encrypted file); with no Java installed, `keytool` ships
   with Android Studio (`/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/keytool`).
@@ -71,7 +72,7 @@ The steps, by hand:
    ```
 
 4. **`renovate.json`:** `{"extends": ["github>owner/kheona-skill//renovate/default#v2.0.0"]}`: the generator pins the preset at the callers' version.
-5. **Variables and secrets:** `KSKILL_TOKEN_BROKER_URL` (your broker) and `KSKILL_BOT` (your App's `<app-slug>[bot]`) are required; neither has a default. `KSKILL_BOT=<app-slug>[bot] scripts/kskill-repo-settings.sh owner/repo --apply` writes it with the other settings. The rest: see [secrets.md](secrets.md) and the [README](../README.md#secrets). Callers pass secrets by name; `secrets: inherit` does not cross owners. The App key is never one of them. A Flutter app signs for Android with `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`; the older Codemagic names `CM_KEYSTORE_PASSWORD`, `CM_KEY_ALIAS`, `CM_KEY_PASSWORD` still work for now, with a deprecation warning: set the new ones to the same values, then delete the old.
+5. **Variables and secrets:** `KSKILL_TOKEN_BROKER_URL` (your broker) and `KSKILL_BOT` (your App's `<app-slug>[bot]`) are required; neither has a default. `KSKILL_BOT=<app-slug>[bot] scripts/kskill-repo-settings.sh owner/repo --apply` writes it with the other settings. The rest: see [secrets.md](secrets.md) and the [README](../README.md#secrets). Callers pass secrets by name; `secrets: inherit` does not cross owners. The App key is never one of them. A Flutter app's delivery secrets start with `ANDROID_` or `APPLE_`: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `ANDROID_PLAY_STORE_JSON_KEY_BASE64`, `APPLE_DIST_CERTIFICATE_P12_BASE64`, `APPLE_DIST_CERTIFICATE_PASSWORD` (optional), `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID`, `APPLE_API_KEY_BASE64`. The older names (`CM_KEYSTORE_PASSWORD`, `CM_KEY_ALIAS`, `CM_KEY_PASSWORD`, `PLAY_STORE_JSON_KEY_BASE64`, `IOS_DIST_CERTIFICATE_P12_BASE64`, `IOS_DIST_CERTIFICATE_PASSWORD`, `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_API_KEY_BASE64`) still work for now, with a deprecation warning: set the new ones to the same values, then delete the old.
 6. **Shared configs (Node):** `"kheona-skill": "github:owner/kheona-skill#v2.0.0"` in `devDependencies`, `allow-git=root` in `.npmrc` (`all` where a `file:` dependency names it too; moving the tag by hand: `npm install --package-lock-only` first) and a one-line `prettier.config.mjs` re-exporting `kheona-skill/prettier` (single quotes, `printWidth: 200`). See [stacks/node-ts.md](../stacks/node-ts.md) K3.
 7. **Topic:** add `kheona-skill` or `kskill`. A library's consumers add the topic the library's `.kheona.json` names.
 8. **Prove it:** open a test PR. It must pass CI and review, and merge.

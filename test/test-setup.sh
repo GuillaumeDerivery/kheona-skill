@@ -52,13 +52,13 @@ check "... the callers written at the version" "$(grep -ho '@0123456789abcdef012
 check "... their header names the setup command exactly" "$(head -1 "$R/.github/workflows/kskill-pr.yml")" 'Do not edit: run scripts/kskill-setup\.sh --apply again\.$'
 check "... the Renovate preset pinned" "$(jq -r '.extends[0]' "$R/renovate.json")" '^github>owner/kheona-skill//renovate/default#v9\.9\.9$'
 check "... both variables set" "$(cat "$FAKE/vars")" 'KSKILL_BOT KSKILL_TOKEN_BROKER_URL'
-check "... each store secret named" "$out" 'todo  secret ASC_KEY_ID'
+check "... each store secret named" "$out" 'todo  secret APPLE_API_KEY_ID'
 check "... with where to find it" "$out" 'Users and Access, Integrations, App Store Connect API, Team Keys'
-check "... the exact command for a value (gh asks for it)" "$out" 'Set it: gh secret set ASC_ISSUER_ID --repo o/app   \(gh asks'
-check "... the exact command for a file" "$out" "base64 < cert\\.p12 \\| tr -d '\\\\n' \\| gh secret set IOS_DIST_CERTIFICATE_P12_BASE64 --repo o/app"
-check "... the .p12's password: set it if there is one" "$out" 'exported with one, set it too: gh secret set IOS_DIST_CERTIFICATE_PASSWORD --repo o/app'
-check "... none: leave the secret unset" "$out" 'Without one, leave IOS_DIST_CERTIFICATE_PASSWORD unset \(GitHub cannot store an empty secret\)'
-check "... and it is never asked for on its own" "$(grep -c 'todo  secret IOS_DIST_CERTIFICATE_PASSWORD' <<<"$out")" '^0$'
+check "... the exact command for a value (gh asks for it)" "$out" 'Set it: gh secret set APPLE_API_ISSUER_ID --repo o/app   \(gh asks'
+check "... the exact command for a file" "$out" "base64 < cert\\.p12 \\| tr -d '\\\\n' \\| gh secret set APPLE_DIST_CERTIFICATE_P12_BASE64 --repo o/app"
+check "... the .p12's password: set it if there is one" "$out" 'exported with one, set it too: gh secret set APPLE_DIST_CERTIFICATE_PASSWORD --repo o/app'
+check "... none: leave the secret unset" "$out" 'Without one, leave APPLE_DIST_CERTIFICATE_PASSWORD unset \(GitHub cannot store an empty secret\)'
+check "... and it is never asked for on its own" "$(grep -c 'todo  secret APPLE_DIST_CERTIFICATE_PASSWORD' <<<"$out")" '^0$'
 check "... macOS's openssl is LibreSSL" "$out" '/usr/bin/openssl is LibreSSL and cannot read a modern PKCS#12'
 check "... Homebrew's OpenSSL, -legacy for RC2" "$out" 'openssl@3\)/bin/openssl" pkcs12 -in cert\.p12 -noout -info, adding -legacy'
 
@@ -72,22 +72,29 @@ out=$(KSKILL_DELIVER_WORKFLOW="$T/deliver.yml" run)
 check "a workflow reading ANDROID_*: those names asked" "$out" 'todo  secret ANDROID_KEY_ALIAS'$'\n''.*'$'\n''.*'$'\n''  Set it: gh secret set ANDROID_KEY_ALIAS'
 
 # A person at the keyboard: the App confirmed (remembered), one secret set while it waits, one skipped, then q.
-echo 'ANDROID_KEYSTORE_BASE64 PLAY_STORE_JSON_KEY_BASE64 IOS_DIST_CERTIFICATE_P12_BASE64 IOS_DIST_CERTIFICATE_PASSWORD ASC_KEY_ID ASC_ISSUER_ID' > "$FAKE/secrets"
+echo 'ANDROID_KEYSTORE_BASE64 ANDROID_PLAY_STORE_JSON_KEY_BASE64 APPLE_DIST_CERTIFICATE_P12_BASE64 APPLE_DIST_CERTIFICATE_PASSWORD APPLE_API_KEY_ID APPLE_API_ISSUER_ID' > "$FAKE/secrets"
 echo 'ANDROID_KEYSTORE_PASSWORD' > "$FAKE/later"; rm -f "$FAKE/n"
 out=$(printf 'y\n\ns\nq\n' | KSKILL_SETUP_TTY=1 run --apply); rc=$?
 check "interactive: the App confirmed and remembered" "$out" 'done  App app-bot installed \(confirmed'
 check "... in the clone's .git, not in a file git tracks" "$(cat "$R/.git/kskill-setup.state")" '^app-installed o/app app-bot$'
 check "... the secret set while it waited: done" "$out" 'done  secret ANDROID_KEYSTORE_PASSWORD'
 check "... the skipped one: todo" "$out" 'todo  secret ANDROID_KEY_ALIAS: skipped'
-check "... q stops: the rest left for the next run" "$out" 'todo  secret ANDROID_KEY_PASSWORD: not set yet \(run this again to continue\)'$'\n''todo  secret ASC_API_KEY_BASE64: not set yet'
+check "... q stops: the rest left for the next run" "$out" 'todo  secret ANDROID_KEY_PASSWORD: not set yet \(run this again to continue\)'$'\n''todo  secret APPLE_API_KEY_BASE64: not set yet'
 check "... exit 1" "$rc" '^1$'
 check "... still no secret set by the script" "$(grep -c 'secret set' "$T/log")" '^0$'
 
-# Done: either name of a signing secret counts, and the App is not asked again.
-echo 'ANDROID_KEYSTORE_BASE64 CM_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD PLAY_STORE_JSON_KEY_BASE64 IOS_DIST_CERTIFICATE_P12_BASE64 ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY_BASE64' > "$FAKE/secrets"
+# Done: either name of a secret counts (an old one said deprecated), and the App is not asked again.
+echo 'ANDROID_KEYSTORE_BASE64 CM_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD PLAY_STORE_JSON_KEY_BASE64 IOS_DIST_CERTIFICATE_P12_BASE64 ASC_KEY_ID APPLE_API_ISSUER_ID APPLE_API_KEY_BASE64' > "$FAKE/secrets"
+rm -f "$FAKE/later"
 out=$(KSKILL_SETUP_TTY=1 run --apply </dev/null)
-check "a re-run with the secrets set, CM_* and ANDROID_* mixed, no .p12 password: ok" "$out" 'ok    secrets \(9 needed, all set\)'
+check "a re-run with the secrets set, old and new names mixed, no .p12 password: ok" "$out" 'ok    secrets \(9 needed, all set\)'
+check "... each old name said deprecated, with its new name" "$out" 'note  secret ASC_KEY_ID is deprecated: set APPLE_API_KEY_ID to the same value \(gh secret set APPLE_API_KEY_ID --repo o/app\), then delete ASC_KEY_ID'
+check "... the four old ones, no new one" "$(grep -c '^note  secret' <<<"$out"):$(grep -oE 'note  secret [A-Z0-9_]+' <<<"$out" | sort | tr '\n' ' ')" \
+  '^4:note  secret ASC_KEY_ID note  secret CM_KEYSTORE_PASSWORD note  secret IOS_DIST_CERTIFICATE_P12_BASE64 note  secret PLAY_STORE_JSON_KEY_BASE64 $'
 check "... the App not asked again" "$out" 'ok    App app-bot installed \(confirmed by a person\)'
 check "... the variables read back from the repository" "$out" 'ok    variable KSKILL_BOT'
 check "... and the callers ok" "$out" 'ok    callers at v9\.9\.9'
+echo 'ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_PLAY_STORE_JSON_KEY_BASE64 APPLE_DIST_CERTIFICATE_P12_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER_ID APPLE_API_KEY_BASE64' > "$FAKE/secrets"
+out=$(run)
+check "the new names only: ok, nothing said deprecated" "$(grep -c '^note' <<<"$out"):$(grep -o 'ok    secrets.*' <<<"$out")" '^0:ok    secrets \(9 needed, all set\)$'
 echo "$pass passed, $failed failed"; [ "$failed" = 0 ]
