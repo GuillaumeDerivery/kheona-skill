@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.10.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.9.0...v2.10.0) (2026-11-11)
+
+
+### Features
+
+* drop the deprecated delivery secret names ([#72](https://github.com/GuillaumeDerivery/kheona-skill/issues/72)) ([a9ecb40](https://github.com/GuillaumeDerivery/kheona-skill/commit/a9ecb4082ddc9bc815afa0729d1da810c35809b2))
+
 ## [2.9.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.8.0...v2.9.0) (2026-11-11)
 
 
