@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.8.0...v2.9.0) (2026-11-11)
+
+
+### Features
+
+* **deliver:** the delivery secrets are ANDROID_* and APPLE_*, the old names a deprecated fallback ([#70](https://github.com/GuillaumeDerivery/kheona-skill/issues/70)) ([34cce2b](https://github.com/GuillaumeDerivery/kheona-skill/commit/34cce2bc92d3e2c131e2e5ea92ef9dc738353ca1))
+
 ## [2.8.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.7.1...v2.8.0) (2026-11-10)
 
 
