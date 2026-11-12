@@ -1,30 +1,76 @@
 <!-- This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
      not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/. -->
 
+<div align="center">
+
 # kheona-skill
 
-Shared CI, delivery and repository automation for GitHub, built to work the same on GitHub Free. A repository keeps a few small caller files and one `.kheona.json`; everything else lives here, pinned by commit.
+**Shared CI, releases, delivery and repository automation for GitHub — built to work the same on GitHub Free.**
 
-## What a repository gets
+[![CI](https://github.com/GuillaumeDerivery/kheona-skill/actions/workflows/ci.yml/badge.svg)](https://github.com/GuillaumeDerivery/kheona-skill/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/GuillaumeDerivery/kheona-skill?sort=semver)](https://github.com/GuillaumeDerivery/kheona-skill/releases)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/GuillaumeDerivery/kheona-skill/badge)](https://scorecard.dev/viewer/?uri=github.com/GuillaumeDerivery/kheona-skill)
+[![License: MPL-2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
 
-- **CI for every stack:** Node, Python, Flutter, Terraform and cluster manifests, one gate per pull request. One shared workflow per job (`kskill-ci.yml`, `kskill-main.yml`, ...) reads the stack from the repository's files and `.kheona.json`: a caller never names it.
-- **Deploy:** build, push, roll out to EKS by image digest, read back what runs. Or hand over to the repository's own deploy.
-- **Release:** release-please's release PR; a person merges it, the version tag releases to production.
-- **Flutter delivery:** TestFlight and Google Play from one workflow.
-- **Sentry triage:** issues and fixes from production errors.
-- **Renovate:** self-hosted, with shared presets.
-- **Claude review and `@claude`:** a review on automation PRs, and fixes on request.
-- **The token broker:** App tokens from a job's OIDC identity, so no App key sits in any repository.
+[Get started](#-get-started) · [What you get](#-what-you-get) · [How a release flows](#-how-a-release-flows) · [Contributing](#-join-in)
 
-## Five-minute adoption
+</div>
 
-See [docs/adoption.md](docs/adoption.md). Once per owner: your own GitHub App and token broker. Then per repository, the setup command: `scripts/kskill-setup.sh [--apply] owner/repo <clone>` checks each step (`.kheona.json`, the topic, the App installed, release files, callers and `renovate.json`, settings, variables, secrets by name), does what it can, walks a person through the rest (an app's store secrets one at a time: what each is, where to find it, the exact `gh secret set` command; it never reads a value), and opens the PR that proves it. Safe to re-run: it resumes where it stopped.
+---
+
+👋 **Welcome!** Maintaining a pipeline in every repository is tedious, and each copy slowly drifts. kheona-skill
+keeps all of it in one place. A repository keeps a few small caller files and one `.kheona.json`; everything else
+lives here, pinned by commit, and moves forward through a single Renovate PR per release.
+
+It's opinionated where it saves you work, and plain where you need to read it: every workflow is ordinary
+GitHub Actions YAML, every script is Bash or Node, and nothing runs that you can't open and read.
+
+## ✨ What you get
+
+| | |
+|---|---|
+| 🧪 **CI for every stack** | Node, Python, Flutter, Terraform and cluster manifests: one gate per pull request. The shared workflow reads the stack from your files and `.kheona.json`, so a caller never names it. |
+| 🚀 **Deploys** | Build, push and roll out to EKS by image digest, then read back what actually runs. Or hand over to your own deploy workflow. |
+| 🏷️ **Releases a person decides** | release-please keeps a release PR open; merging it creates the version tag, and the tag ships to production. |
+| 📱 **Flutter delivery** | TestFlight and Google Play from one workflow. |
+| 🔎 **Sentry triage** | Production errors become issues, and fixes. |
+| 🔄 **Renovate** | Self-hosted, with shared presets: one update PR a week, one lock file PR, a security PR at once. |
+| 🤖 **Claude review and `@claude`** | A review on automation PRs, and fixes when you ask. |
+| 🔐 **No App key in any repository** | A small token broker swaps a job's OIDC identity for a short-lived GitHub App token. |
+
+## 🚀 Get started
+
+Adoption takes about five minutes per repository. The full guide is [docs/adoption.md](docs/adoption.md).
+
+1. **Once per owner:** create your GitHub App and deploy the token broker ([terraform/token-broker](terraform/token-broker/README.md)).
+2. **Per repository:** run the setup command. It checks each step, does what it can, and walks you through the rest:
+
+   ```bash
+   scripts/kskill-setup.sh --apply owner/repo ../my-repo
+   ```
+
+   It covers `.kheona.json`, the topic, the App installation, release files, callers and `renovate.json`,
+   settings, variables and secrets by name. For an app's store secrets it explains each one, where to find it,
+   and the exact `gh secret set` command; it never reads a value. It finishes by opening the PR that proves it
+   all works. Safe to re-run: it resumes where it stopped.
+3. **Merge that PR.** From then on, kheona-skill updates arrive as one Renovate PR per release.
+
+Prefer to write the callers yourself?
 
 ```bash
 node scripts/kskill-callers.mjs write --repo ../my-repo --self owner/kheona-skill --sha <40-hex-commit> --version v2.0.0
 ```
 
-## Releases and deploys
+## 🧭 How a release flows
+
+```mermaid
+flowchart LR
+  PR["Pull request"] -->|CI gate| M["Merge to main"]
+  M -->|kskill-main| S["Staging"]
+  M -->|release-please| RP["Release PR"]
+  RP -->|a person merges| T["Tag vX.Y.Z"]
+  T -->|kskill-deploy / kskill-deliver| P["Production"]
+```
 
 | When | Workflow in the repository | What happens |
 |---|---|---|
@@ -37,6 +83,9 @@ node scripts/kskill-callers.mjs write --repo ../my-repo --self owner/kheona-skil
 | **In a fork, a person publishes a release** (the parent's version, on `main`) | the same | The release check, the full gate, then **production**. Release-please never runs in a fork. |
 | Started by hand on `main` (an app) | `kskill-deliver.yml` | A test build, no version. |
 
+<details>
+<summary><b>The guarantees behind it</b></summary>
+
 - **The environment comes from the ref, never from an input:** `main` is staging, a version tag is production, nothing else deploys (`.github/scripts/kskill-release-check.sh`).
 - **A tag deploys only a person's release:** `vMAJOR.MINOR.PATCH`, on `main`, the newest, the squash merge of release-please's PR merged by a person with write access, and Main passed on the commit before it (still running: the check waits for it, up to 45 minutes). The release PR runs the gate like any PR, and its checklist names a submodule's versions and calls out a major one. A rollback, and a fork's release, need a published release and a person with write access. Tags cannot be protected on every plan, so the workflow checks.
 - **A library** releases itself: its release PR merges once its gate passed (`workflows.releasePlease.merge`); the tag deploys nothing.
@@ -44,80 +93,50 @@ node scripts/kskill-callers.mjs write --repo ../my-repo --self owner/kheona-skil
 - **A custom deploy:** `workflows.cd.target: "custom"`. The release check and the gate stay here; the repository's own workflow (`workflows.cd.custom.workflow`, default `deploy.yml`, `on: workflow_call` with the inputs `environment` and `version`) deploys, with its own credentials.
 - **This repository** releases the same way (`release.yml`): a person merges its release PR, the release is immutable, and each repository gets it through one Renovate PR that moves its callers, its preset pin and, in a Node repository, its `kheona-skill` devDependency together. Renovate's post-upgrade step then writes the callers again with the generator of the new version (`scripts/kskill-callers-regenerate.mjs`), so a caller whose content changes arrives right in that PR. That step is the running Renovate workflow's, so its caller must be on a version that has it (v2.7.0 on); a run behind the latest release warns.
 
-## Secrets
+</details>
 
-Four places hold secrets, and only the broker holds the GitHub App key. Values are never printed and never reach a public log. A caller passes each secret by name: `secrets: inherit` does not cross owners. Variables are in [docs/secrets.md](docs/secrets.md).
+## 🔐 Secrets, safely
 
-### On this repository
+Four places hold secrets, and only the token broker holds the GitHub App key. Values are never printed and never
+reach a public log; a caller passes each secret by name. Set only what a repository uses: a missing required secret
+fails with its name before any real work starts, and a missing optional one just turns its feature off.
 
-| Secret | Used by | What it does |
-|---|---|---|
-| `KSKILL_GUARD_TERMS` | `guard.yml` | The private list of forbidden names, one per line. The guard fails if a file, a commit or a PR's text holds one. A fork's PR never receives it. |
-| `GITHUB_TOKEN` | automatic | GitHub's own token for each run. Nothing to set. |
+Every secret and variable, where it lives and what reads it: **[docs/secrets.md](docs/secrets.md)**.
 
-### On the private runner repository
+## 🧠 Use it as a Claude Code skill
 
-The runner repository calls `kskill-guard.yml` on a schedule: it reads each fork's PR here without running it and sets
-its `rule-0` status, with the App's token from the broker (the runner is in the broker's `acrossOwners`).
-
-| Secret | What it does |
-|---|---|
-| `KSKILL_GUARD_TERMS` | The same list, so a fork's PR is checked too. |
-
-`main` requires `rule-0` (a commit status: the guard on this repository's own PRs, the runner on a fork's), `test`
-and `zizmor`. A required check passes on a skipped job; a status nobody set stays pending, so a fork's PR waits for the
-runner.
-
-On your own machine, the same guard and list run before anything leaves it:
-`bash scripts/kskill-guard-hook.sh install <list file>` in a clone adds git hooks (`pre-commit` on the files,
-`commit-msg` on the message, `pre-push` on the commits). With `kskill-guard-hook.sh claude` as a Claude Code
-`PreToolUse` hook on `Bash`, a `git` or `gh` command aimed at this repository is denied when its text, body file or
-pushed commits hold a term.
-
-### On each repository with the `kheona-skill` or `kskill` topic
-
-Set only what the repository uses. A workflow that lacks a required secret fails with its name before any real work starts; an optional one only turns its feature off.
-
-| Secret | Needed by | Required | What it does |
-|---|---|---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` | PR, `@claude`, inbox | Optional | Signs Claude Code in, for the review of automation PRs, `@claude` and the fixes of the Sentry triage. Without it there is no review. |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Deploy | Only without `awsRoleArn` | A stored AWS key for ECR and EKS. Prefer `awsRoleArn` in `.kheona.json`: the job then uses its OIDC identity and neither secret exists. |
-| `SLACK_WEBHOOK_URL` | Deploy | Optional | Announces each deploy's start and result in a Slack channel. |
-| `SENTRY_AUTH_TOKEN` | Inbox, Flutter delivery | Optional | Reads and updates Sentry issues for the triage (`event:read`, `event:write`, `project:read`, `org:read`), and uploads an app's debug symbols. |
-| `ANDROID_KEYSTORE_BASE64` | Flutter delivery | Yes | The Android signing keystore, base64. |
-| `ANDROID_KEYSTORE_PASSWORD` | Flutter delivery | Yes | The keystore's password. |
-| `ANDROID_KEY_ALIAS` | Flutter delivery | Yes | The signing key's alias in the keystore. |
-| `ANDROID_KEY_PASSWORD` | Flutter delivery | Yes | The signing key's password. |
-| `ANDROID_PLAY_STORE_JSON_KEY_BASE64` | Flutter delivery | Yes | The Google Play service account's JSON key, base64, for the upload. |
-| `APPLE_DIST_CERTIFICATE_P12_BASE64` | Flutter delivery | Yes | The Apple distribution certificate, `.p12`, base64. |
-| `APPLE_DIST_CERTIFICATE_PASSWORD` | Flutter delivery | Optional | The `.p12`'s password. Unset for a `.p12` exported without one (GitHub cannot store an empty secret): the delivery imports it with an empty password, re-encoding an OpenSSL-made file first. |
-| `APPLE_API_KEY_ID` | Flutter delivery | Yes | The App Store Connect API key's id. |
-| `APPLE_API_ISSUER_ID` | Flutter delivery | Yes | The App Store Connect issuer id. |
-| `APPLE_API_KEY_BASE64` | Flutter delivery | Yes | The App Store Connect API key, `.p8`, base64, for the upload. |
-
-Flutter delivery receives these through its caller, `kskill-deliver.yml`. Android ones start with `ANDROID_`, Apple ones with `APPLE_`; the names before v2.9.0 (`CM_*`, `PLAY_STORE_*`, `IOS_DIST_*`, `ASC_*`) are no longer read.
-
-### On the token broker
-
-`KSKILL_APP_PRIVATE_KEY` is a Cloudflare Worker secret, not a repository secret: the GitHub App's key in PKCS#8. A job proves who it is with its OIDC identity and receives a short-lived token, so no repository ever holds the key. See [terraform/token-broker/README.md](terraform/token-broker/README.md).
-
-## Use as a Claude Code skill
-
-The repository is also the `kheona` skill (`SKILL.md`, `stacks/`, the `enforce.sh` hooks):
+The repository is also the `kheona` skill (`SKILL.md`, `stacks/`, the `enforce.sh` hooks), so Claude Code holds a
+repository to the same bar the workflows check:
 
 ```bash
 git clone https://github.com/<owner>/kheona-skill ~/.claude/skills/kheona
 ```
 
-`/kheona` audits a repository, lands the mechanical fixes, files an issue for each failure left and reports; `/kheona report` only reports.
+`/kheona` audits a repository, lands the mechanical fixes, files an issue for each failure left and reports;
+`/kheona report` only reports.
 
-## Reference
+## 📚 Reference
 
-- [docs/kheona-json.md](docs/kheona-json.md): every `.kheona.json` key.
-- [docs/secrets.md](docs/secrets.md): the variables each workflow reads.
-- [docs/free-plan.md](docs/free-plan.md): the free-plan limits this is built for.
-- [terraform/token-broker/README.md](terraform/token-broker/README.md): the token broker.
+| | |
+|---|---|
+| [docs/adoption.md](docs/adoption.md) | Adopting it, step by step |
+| [docs/kheona-json.md](docs/kheona-json.md) | Every `.kheona.json` key |
+| [docs/secrets.md](docs/secrets.md) | Every secret and variable |
+| [docs/free-plan.md](docs/free-plan.md) | The GitHub Free limits this is built for |
+| [terraform/token-broker/README.md](terraform/token-broker/README.md) | The token broker |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 
-## License
+## 🤝 Join in
 
-[MPL-2.0](LICENSE). Usable in private repositories; changes to these files are published back.
+You're very welcome here, whether you're trying it on one repository, fixing a typo, or proposing a whole new stack.
+
+- **Questions, ideas and bugs:** [open an issue](https://github.com/GuillaumeDerivery/kheona-skill/issues/new/choose). A short first line that says it all helps us help you.
+- **Pull requests:** see [CONTRIBUTING.md](CONTRIBUTING.md). Run `bash test/run-all.sh` before you push.
+- **Be kind:** we follow the [Contributor Covenant](CODE_OF_CONDUCT.md).
+- **Security:** please report a vulnerability privately, as [SECURITY.md](SECURITY.md) explains, never in a public issue.
+
+If kheona-skill saves you time, a ⭐ helps others find it.
+
+## 📄 License
+
+[MPL-2.0](LICENSE). Use it in private repositories freely; changes to these files are shared back.
