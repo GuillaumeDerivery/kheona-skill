@@ -66,7 +66,7 @@ production callers by their immutable version tag).
 |---|---|
 | Adopting it (once per owner, then per repository) | [docs/adoption.md](docs/adoption.md) |
 | Every `.kheona.json` key | [docs/kheona-json.md](docs/kheona-json.md) |
-| Variables and secrets | [docs/secrets.md](docs/secrets.md), [README](README.md#secrets) |
+| Variables and secrets | [docs/secrets.md](docs/secrets.md) |
 | What runs when (PR, `main`, release, tag) | [README](README.md#releases-and-deploys) |
 | Free-plan constraints | [docs/free-plan.md](docs/free-plan.md) |
 | The token broker (App tokens from a job's OIDC identity) | [terraform/token-broker/README.md](terraform/token-broker/README.md) |
