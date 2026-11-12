@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.10.2](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.10.1...v2.10.2) (2026-11-12)
+
+
+### Bug Fixes
+
+* **flutter:** Renovate writes pubspec.lock with the pinned Flutter ([#76](https://github.com/GuillaumeDerivery/kheona-skill/issues/76)) ([86ffaa5](https://github.com/GuillaumeDerivery/kheona-skill/commit/86ffaa54a9c3c4c2eba17cb28c6ea06c3d7dbf46))
+
 ## [2.10.1](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.10.0...v2.10.1) (2026-11-11)
 
 
