@@ -78,6 +78,15 @@ if [ -n "$stack" ] || [ "$role" = infra ]; then
     fail renovate.json "must extend this repository's Renovate preset"
   fi
 fi
+# Renovate writes pubspec.lock with the Flutter `constraints.flutter` names; without it, with the newest Flutter
+# the lock's `sdks: flutter: ">=x"` allows, whose pinned packages (test_api…) the repository's Flutter refuses.
+if [ "$stack" = flutter ] && [ "${KSKILL_FORK:-false}" != true ] && [ -f renovate.json ]; then
+  pin=$(bash "$SKILL/.github/scripts/kskill-flutter-version.sh" . 2>/dev/null | sed -n 's/^version=//p')
+  have=$(jq -r '.constraints.flutter // empty' renovate.json 2>/dev/null)
+  if [ -n "$pin" ] && [ "$have" != "$pin" ]; then
+    fail renovate.json "constraints.flutter must be the pinned Flutter, $pin (found: ${have:-none}): jq '.constraints.flutter = \"$pin\"' renovate.json"
+  fi
+fi
 
 # 2. The inbox jobs this repository needs.
 JOBS=()

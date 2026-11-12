@@ -109,6 +109,9 @@ cheap, low-risk PR — there is no excuse for carrying the backlog.
 cat renovate.json                       # extends github>owner/kheona-skill//renovate/default#vX.Y.Z
 gh pr list --search "head:renovate/"    # Renovate's open PRs
 ```
+`renovate.json` sets `"constraints": {"flutter": "<the .fvmrc version>"}`: Renovate writes `pubspec.lock` with that
+Flutter, not the newest one the lock's `sdks: flutter: ">=x"` allows (whose packages, e.g. `test_api`, the pinned
+Flutter refuses, failing `flutter pub get`). The repository check holds the two equal; refresh-flutter moves both.
 Renovate (SKILL.md K1.4) covers `pub` and `github-actions`, and closes item 2 with weekly `lockFileMaintenance`
 of every `pubspec.lock` (the root's and each local package's), which version updates never reach. The Kheona
 preset leaves Gradle, the Gradle wrapper, AGP, Kotlin and the Flutter/Dart SDK alone: K1.3 and the inbox's

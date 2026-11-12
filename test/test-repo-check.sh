@@ -45,4 +45,14 @@ printf 'platform :ios do\n  lane :store do\n  end\nend\n' > ios/fastlane/Fastfil
 out=$(bash "$K" --json . "$HERE"); check "... every lane defined: no delivery finding" "$(jq -c .delivery <<<"$out")" '^\[\]$'
 echo '{"role":"library","workflows":{"local":{"mine.yml":"our own","kskill-deliver.yml":"t"},"cd":{"enabled":false}}}' > .kheona.json; rm -rf android ios; git add -A
 out=$(bash "$K" --json . "$HERE"); check "... workflows.cd.enabled false: nothing checked" "$(jq -c .delivery <<<"$out")" '^\[\]$'
+# Renovate's Flutter: renovate.json constraints.flutter equals the .fvmrc pin.
+F=$T/f; mkdir -p "$F"; git -C "$F" init -q; cd "$F" || exit 1
+printf 'name: x\nenvironment:\n  sdk: ^3.0.0\n' > pubspec.yaml; echo '{"flutter":"3.47.9"}' > .fvmrc
+echo '{"extends":["github>owner/kheona-skill//renovate/default"]}' > renovate.json; git add -A
+fl() { bash "$K" --json . "$HERE" | jq -r '[.errors[] | select(.file == "renovate.json") | .message] | join(";")'; }
+check "flutter: no constraints.flutter fails" "$(fl)" 'constraints.flutter must be the pinned Flutter, 3\.47\.9 \(found: none\)'
+echo '{"extends":["github>owner/kheona-skill//renovate/default"],"constraints":{"flutter":"3.47.8"}}' > renovate.json; git add -A
+check "... another version fails" "$(fl)" 'found: 3\.47\.8'
+echo '{"extends":["github>owner/kheona-skill//renovate/default"],"constraints":{"flutter":"3.47.9"}}' > renovate.json; git add -A
+check "... the pinned version passes" "$(fl)" '^$'
 echo "$pass passed, $failed failed"; [ "$failed" = 0 ]

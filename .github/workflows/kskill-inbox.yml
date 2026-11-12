@@ -1211,6 +1211,8 @@ jobs:
             .fvm/fvm_config.json) set_json .flutterSdkVersion .fvm/fvm_config.json ;;
           esac
           set_pubspec
+          # Renovate writes pubspec.lock with this Flutter (the repository check holds them equal).
+          [ -f renovate.json ] && set_json .constraints.flutter renovate.json
           check=$(bash "$KSKILL_HOME/.github/scripts/kskill-flutter-version.sh")
           [ "$(sed -n 's/^version=//p' <<<"$check")" = "$NEW" ] || { echo "::error::The pin did not move to $NEW: $check"; exit 1; }
           git diff --stat
