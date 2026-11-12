@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.10.3](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.10.2...v2.10.3) (2026-11-12)
+
+
+### Bug Fixes
+
+* commit the lockfile and extend the preset here too ([#78](https://github.com/GuillaumeDerivery/kheona-skill/issues/78)) ([340fc33](https://github.com/GuillaumeDerivery/kheona-skill/commit/340fc33f12ab6a37fb3f7650dea411a11e8dba23)), closes [#55](https://github.com/GuillaumeDerivery/kheona-skill/issues/55) [#56](https://github.com/GuillaumeDerivery/kheona-skill/issues/56)
+
 ## [2.10.2](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.10.1...v2.10.2) (2026-11-12)
 
 
