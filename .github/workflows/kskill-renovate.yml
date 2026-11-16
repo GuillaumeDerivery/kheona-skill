@@ -174,13 +174,13 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Run Renovate
-        uses: renovatebot/github-action@f0f41e5f2e706165f6814b1d0f0d0e319de7d1d9 # v46.3.8
+        uses: renovatebot/github-action@acdd6bda8b035c99ce59d5675816af2aa65a1774 # v46.3.14
         env:
           LOG_LEVEL: ${{ inputs.dry_run && 'debug' || 'info' }}
         with:
           token: ${{ steps.owner.outputs.token }}
           configurationFile: ${{ runner.temp }}/renovate/renovate-${{ matrix.owner }}.json
-          renovate-version: "44.149.0"
+          renovate-version: "44.242.0"
           additional-env-list: |
             GIT_CONFIG_COUNT
             GIT_CONFIG_KEY_0
