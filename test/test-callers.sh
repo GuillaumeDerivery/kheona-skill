@@ -48,6 +48,12 @@ check "... and no old name (CM_, PLAY_STORE_, IOS_DIST_, ASC_)" \
 check "... the stack: flutter, deploys nothing from main" "$(node "$C" stack --repo "$R" | tr '\n' ' ')" '^stack=flutter deploys=false $'
 check "... delivery pinned by the version tag" "$(grep 'uses:' "$R/.github/workflows/kskill-deliver.yml")" '@v1.2.3$'
 node "$C" check --repo "$R"; check "Flutter: check passes with a tag pin" "$?" '^0$'
+R2=$T/flw; mkdir -p "$R2"; : > "$R2/pubspec.yaml"
+echo '{"role":"app","workflows":{"cd":{"ios":{"xcode":"26.6"},"staging":{"ecrRepository":"web"},"prod":false}}}' > "$R2/.kheona.json"; w "$R2"
+check "Flutter with web targets: delivery and deploy" "$(ls "$R2/.github/workflows" | tr '\n' ' ')" '^kskill-claude.yml kskill-deliver.yml kskill-deploy.yml kskill-inbox.yml kskill-main.yml kskill-pr.yml kskill-release-please.yml $'
+check "... the stack: flutter, deploys staging from main" "$(node "$C" stack --repo "$R2" | tr '\n' ' ')" '^stack=flutter deploys=true $'
+echo '{"role":"app","workflows":{"cd":{"staging":false,"prod":{"ecrRepository":"web"}}}}' > "$R2/.kheona.json"
+check "... production only: the deploy, nothing from main" "$(node "$C" stack --repo "$R2" | tr '\n' ' ')" '^stack=flutter deploys=false $'
 sed -i.bak 's/@v1.2.3$/@v1.2.4/' "$R/.github/workflows/kskill-deliver.yml"
 out=$(node "$C" check --repo "$R" --json); check "callers at two versions fail" "$?:$out" '^1:.*different versions'
 R=$T/rn; mkdir -p "$R"; echo '{}' > "$R/package.json"; echo '{"role":"library"}' > "$R/.kheona.json"

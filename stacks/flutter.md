@@ -197,6 +197,14 @@ job builds a **signed `.ipa`** and uploads to TestFlight; both `needs:` the anal
 in the delivery a version tag starts (K2.8), so they are unreachable from a pull request and from a merge
 to `main` alike. A debug APK left as a workflow artifact is not a publish step.
 
+**The web build, as an image (optional).** A Flutter app that also runs in a browser ships it like a service: a
+`Dockerfile` at the root serving `flutter build web` (nginx, say), and `workflows.cd.staging` / `.prod` targets in
+`.kheona.json` (docs/kheona-json.md) next to the store keys. A push to `main` then deploys staging
+(`kskill-main.yml` → `kskill-deploy.yml`), and the version tag deploys production while `kskill-deliver.yml` ships the
+stores. The backend hosts are usually compiled in (`--dart-define`): each environment then builds its own image
+(`buildArgs`) into its own `ecrRepository`. `prod: false` keeps the web out of production without touching the
+stores.
+
 ## K3 — Code health
 
 ```bash

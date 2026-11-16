@@ -1,15 +1,16 @@
 # This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was
 # not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # Trigger: a push to main (a merged PR)
-# Purpose: the gate once (a green PR run of the same tree reused), then a service's staging deploy
-# Effect: deploys staging, in a service
+# Purpose: the gate once (a green PR run of the same tree reused), then a service's (or a web app's) staging deploy
+# Effect: deploys staging, in a service or a Flutter app with web targets
 # Everything a push to `main` starts, in one run, whatever the repository is. Installed as `.github/workflows/kskill-main.yml`.
 #   0. The stack and what main deploys, read from the repository (scripts/kskill-callers.mjs stack, as the callers'
-#      generator reads them): a service (Node or Python, a template included) deploys staging; a library (`role:
-#      library`) and a Flutter app deploy nothing (an app ships from a version tag, kskill-deliver.yml).
+#      generator reads them): a service (Node or Python, a template included) deploys staging; so does a Flutter app
+#      whose `workflows.cd.staging` is an object (its web build as an image); a library (`role: library`) and any
+#      other Flutter app deploy nothing (an app ships to the stores from a version tag, kskill-deliver.yml).
 #   1. CI: the stack's gate, `kskill-ci.yml`, called once. A green `Kheona Skill · PR` run of the same tree (a squash
 #      merge of an up-to-date PR) is reused: only its first job runs (kskill-tested-tree.sh).
-#   2. Staging, in a service: `kskill-deploy.yml` (`gate: false`: it needs this run's CI), where `workflows.cd.staging`
+#   2. Staging, in a service or a Flutter app with web targets: `kskill-deploy.yml` (`gate: false`: it needs this run's CI), where `workflows.cd.staging`
 #      is set (skipped before any runner where the Actions variable KSKILL_CD_STAGING is "false"). With
 #      workflows.cd.target "custom", its outputs hand the deploy to the caller's `custom` job.
 # The release PR is release-please's (kskill-release-please.yml); production is the version tag merging it creates

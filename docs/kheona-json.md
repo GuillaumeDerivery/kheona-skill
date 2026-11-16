@@ -13,7 +13,7 @@ Each shared workflow's header comment lists the keys it reads, their types and d
 | `workflows.ci.skip.<check>` | none | Turns a check off; the value is the reason |
 | `workflows.cd.target` | `eks` | `custom`: the repository's own workflow deploys, after the release check and the gate |
 | `workflows.cd.custom.workflow` | `deploy.yml` | That workflow (`on: workflow_call`, inputs `environment` and `version`) |
-| `workflows.cd.<env>` | none | `staging` (from `main`) or `prod` (from a version tag): `ecrRepository`, `region`, `cluster`, `namespace`, `deployments`, `cronjobs`, `buildArgs`, `awsRoleArn`; `false` = none |
+| `workflows.cd.<env>` | none | `staging` (from `main`) or `prod` (from a version tag): `ecrRepository`, `region`, `cluster`, `namespace`, `deployments`, `cronjobs`, `buildArgs`, `awsRoleArn`; `false` = none. In a Flutter app, an object here also deploys the web build: the repository's `Dockerfile` as an image, next to the store delivery (staging from `main`, `prod` from the same version tag) |
 | `workflows.local.<file>` | none | A workflow of the repository's own; the value is the reason |
 | `workflows.library.package` | none | The npm name of a library submodule, for the `.env` rule of its services |
 | `workflows.releasePlease.merge` | `person`; `gate` in a library | Who merges the release PR; `gate` and `daily` are for a library only |

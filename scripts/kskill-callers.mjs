@@ -47,19 +47,31 @@ export function needed() {
   if (stack === 'infra') return { stack, files: out };
   out.push('kskill-claude.yml', 'kskill-inbox.yml', 'kskill-release-please.yml');
   out.push('kskill-main.yml');
-  // What ships from a version tag: an app's delivery, a service's deploy; a library releases only.
+  // What ships from a version tag: an app's delivery, a service's deploy; a library releases only. A Flutter app with
+  // `workflows.cd.staging` or `.prod` targets also deploys its web build as an image (webDeploys).
   if (role !== 'library' && stack === 'flutter') {
     if (CFG.workflows?.cd?.enabled !== false) out.push('kskill-deliver-flutter.yml');
+    if (webDeploys()) out.push('kskill-deploy.yml');
   } else if (role !== 'library' && (CFG.workflows?.cd?.staging || CFG.workflows?.cd?.prod)) out.push('kskill-deploy.yml');
   // A template or a library may be forked: its forks get the notice of each change (a fork with none is a no-op).
   if (role === 'template' || role === 'library') out.push('kskill-sync-upstream.yml');
   return { stack, files: out };
 }
 
-// What a push to main deploys: staging, for a service (Node or Python, a template included), never for a library, an
-// app or an infra repository. kskill-main.yml reads it through `stack`.
+// A Flutter app that also ships its web build as a container image: `workflows.cd.staging` or `.prod` is an object
+// (the same targets as a service's), next to the store delivery's keys.
+const isTarget = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+export function webDeploys() {
+  return isTarget(CFG.workflows?.cd?.staging) || isTarget(CFG.workflows?.cd?.prod);
+}
+
+// What a push to main deploys: staging, for a service (Node or Python, a template included) and for a Flutter app's
+// web image (an object `workflows.cd.staging`), never for a library or an infra repository. kskill-main.yml reads it
+// through `stack`.
 export function deploys(stack = stackOf(), role = CFG.role || 'project') {
-  return role !== 'library' && (stack === 'node' || stack === 'python');
+  if (role === 'library') return false;
+  if (stack === 'flutter') return isTarget(CFG.workflows?.cd?.staging);
+  return stack === 'node' || stack === 'python';
 }
 
 // renovate.json extends this repository's preset at the callers' version tag, never the default branch.

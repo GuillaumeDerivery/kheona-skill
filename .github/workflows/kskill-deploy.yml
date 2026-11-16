@@ -3,7 +3,8 @@
 # Trigger: called by Kheona Skill · Main on a push to main (staging); a version tag's push (production); by hand
 # Purpose: checks the release, runs the gate, builds the image, pushes it to ECR and rolls it out on EKS
 # Effect: deploys staging or production
-# Deploys a backend container (Node or Python). The environment comes from the ref, never from an input
+# Deploys a container: a backend (Node or Python), or a Flutter app's web build (its own Dockerfile; the stores are
+# kskill-deliver-flutter.yml's, on the same tag). The environment comes from the ref, never from an input
 # (.github/scripts/kskill-release-check.sh):
 #   - `main` is staging: `Kheona Skill · Main` (kskill-main.yml) calls this file on a push, after its own gate
 #     (`gate: false`, never honoured on a tag); a dispatch on `main` deploys staging again.
