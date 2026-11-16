@@ -33,7 +33,7 @@ jobs:
     name: Notify the forks
     # Parent side: a push to main tells every fork right away.
     if: ${{ !github.event.repository.fork }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read

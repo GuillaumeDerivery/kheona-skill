@@ -113,7 +113,7 @@ jobs:
   config:
     name: Read the delivery settings
     if: github.event_name != 'pull_request' || inputs.dry_run
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 50     # the release check waits up to 45 min for Main on the commit before
     permissions:
       contents: read
@@ -252,7 +252,7 @@ jobs:
     if: >-
       !cancelled() && needs.config.outputs.android == 'true'
       && (needs.ci.result == 'success' || (inputs.dry_run && needs.ci.result == 'skipped'))
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     permissions:
       contents: read

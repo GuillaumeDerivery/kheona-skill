@@ -73,7 +73,7 @@ jobs:
   bump-lib:
     name: Bump lib
     if: (inputs.job == 'bump-lib' || github.event.action == 'lib-released') && (!github.event.repository.fork)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     concurrency:
       group: kskill-bump-lib
       cancel-in-progress: false
@@ -351,7 +351,7 @@ jobs:
     name: Merge the parent into the sync branch
     # Fork side: the parent's signal or a manual run (a person's, or the doctor's); never the fork's own pushes.
     if: (inputs.job == 'sync-upstream' || github.event.action == 'upstream-updated') && (github.event.repository.fork && github.event_name != 'push')
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     concurrency:
       group: kskill-sync-upstream-${{ github.event_name == 'push' && 'notify' || 'sync' }}
       cancel-in-progress: true
@@ -508,7 +508,7 @@ jobs:
   sentry-triage:
     name: Triage Sentry issues
     if: inputs.job == 'sentry-triage'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     env:
       MAX_PRS: '3'
     concurrency:
@@ -561,7 +561,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version: "26"
 
       - name: List the Sentry issues
         id: collect
@@ -720,7 +720,7 @@ jobs:
   mutation-setup:
     name: Read the configuration
     if: inputs.job == 'mutation'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # actions: read lists the `mutation-base` artifacts (the last green run's commit).
     permissions:
       contents: read
@@ -780,7 +780,7 @@ jobs:
         if: steps.phase.outputs.phase == 'established'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version: "26"
 
       - name: Find the files to mutate
         id: scope
@@ -799,7 +799,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     concurrency:
       group: kskill-mutation-${{ github.ref }}
       cancel-in-progress: false
@@ -971,7 +971,7 @@ jobs:
   refresh-flutter-plan:
     name: Compare the pin with the latest stable
     if: inputs.job == 'refresh-flutter' && (!github.event.repository.fork)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     concurrency:
       group: kskill-refresh-flutter
       cancel-in-progress: false
@@ -1148,7 +1148,7 @@ jobs:
     name: Move the SDK and verify
     needs: refresh-flutter-plan
     if: inputs.job == 'refresh-flutter' && (needs.refresh-flutter-plan.outputs.action == 'refresh' && needs.refresh-flutter-plan.outputs.keep != 'true')
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     concurrency:
       group: kskill-refresh-flutter
       cancel-in-progress: false
@@ -1466,7 +1466,7 @@ jobs:
   security-scan:
     name: OSV scan
     if: inputs.job == 'security-scan'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     env:
       # Pinned with its checksum: an unpinned scanner turns a green run red overnight with no commit to blame.
       OSV_SCANNER_VERSION: v2.6.0

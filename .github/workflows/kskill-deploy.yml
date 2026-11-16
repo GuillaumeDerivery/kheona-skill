@@ -116,7 +116,7 @@ jobs:
     if: >-
       (!startsWith(github.ref, 'refs/tags/') && vars.KSKILL_CD_STAGING != 'false') ||
       (startsWith(github.ref, 'refs/tags/') && vars.KSKILL_CD_PROD != 'false')
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 50     # the release check waits up to 45 min for Main on the commit before
     permissions:
       contents: read
@@ -314,7 +314,7 @@ jobs:
     if: >-
       startsWith(github.ref, 'refs/tags/') && !inputs.dry_run
       && needs.plan.outputs.deploy == 'true' && needs.plan.outputs.target == 'eks'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -528,7 +528,7 @@ jobs:
       !cancelled() && github.event_name != 'pull_request' && !inputs.dry_run && needs.plan.result == 'success'
       && needs.plan.outputs.deploy == 'true' && needs.plan.outputs.target == 'custom'
       && (needs.ci.result == 'success' || (needs.ci.result == 'skipped' && toJSON(inputs.gate) == 'false' && !startsWith(github.ref, 'refs/tags/')))
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 2
     outputs:
       deploy: ${{ steps.go.outputs.deploy }}
