@@ -451,6 +451,7 @@ The reader is Claude in a fresh session, holding the repository and nothing else
   is the fork's own (its deploy values, its secrets, its workflow runs) in the fork, never the reverse.
 - **Parked:** title `[PARKED] …`, body opening `## Status: parked`, the blocker, the unblock condition as a checklist.
 - **Waiting:** label `waiting`, first body line `Waiting on: <issue, PR, person or event>`. Drop it when unblocked.
+  End the line `, then close` when the issue is done once the issues or PRs it names close: the doctor closes it then.
 
 ### Issue template (default mode)
 
