@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.10.5](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.10.4...v2.10.5) (2026-11-18)
+
+
+### Bug Fixes
+
+* **deps:** update major updates to v26 ([#83](https://github.com/GuillaumeDerivery/kheona-skill/issues/83)) ([8f56cfc](https://github.com/GuillaumeDerivery/kheona-skill/commit/8f56cfc08e914e9150d19b7cf784fc568f664196))
+
 ## [2.10.4](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.10.3...v2.10.4) (2026-11-16)
 
 
