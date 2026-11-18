@@ -58,7 +58,7 @@ jobs:
       pull-requests: read
       actions: read
       id-token: write
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # No waiting in it: release-please, a merge, or the tag and the notices.
     timeout-minutes: 15
     # In the job: a fork's skipped run never enters the group. Both merges (this one and Kheona Skill · PR's) are
