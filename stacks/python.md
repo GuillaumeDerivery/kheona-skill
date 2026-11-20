@@ -201,3 +201,6 @@ pipenv run python -c "import <package>; print(<package>.__version__)"
 docker build -t <svc>:audit . && docker run --rm <svc>:audit --help
 curl -fsS localhost:$PORT/health                   # K8.4
 ```
+
+**K8.6**, a backend with a store-delivered app: the same public `GET /api/v1/app/requirements` as the Node stack, its
+minimums from configuration validated as `x.y.z` at boot.
