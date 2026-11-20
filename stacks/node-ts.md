@@ -524,3 +524,11 @@ curl -fsS localhost:$PORT/healthcheck            # K8.4; `commit` present (K2.9)
 ```
 K8.1: the package name, the container image name, the service name in the deploy manifest and whatever
 the console shows must all agree.
+
+**K8.6**, a backend with a store-delivered app: `GET /api/v1/app/requirements` is public (no auth middleware), reads
+`app.minimumVersion.ios` / `.android` from configuration (empty string committed, an environment variable per
+deployment, validated as `x.y.z` at boot) and answers `null` for an empty one. A test covers both platforms set, one
+unset, and the cache header. Where an ingress lists paths, add `/api/v1/app` to it.
+```bash
+curl -fsS https://<api host>/api/v1/app/requirements      # K8.6
+```

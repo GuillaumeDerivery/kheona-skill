@@ -432,6 +432,21 @@ in bootstrap (`.github/scripts/kskill-phase.sh --ship`). On switching, the floor
   at most three per run, the rest labelled `sentry: fix deferred`. Sentry then follows GitHub: resolved in the next
   release when a merged PR names it, resolved when closed as fixed, ignored until it escalates when closed as noise.
   **It never merges.** In a fork, a fix to code shared with the parent goes to the parent.
+- **K8.6 A store-delivered app can be told to update, from its first release.** A version already installed can
+  only be retired if it was built to ask, so this ships before the first store release.
+  - **The backend** answers a public, unauthenticated `GET /api/v1/app/requirements` with
+    `{"minimumVersion": {"ios": "x.y.z" | null, "android": "x.y.z" | null}}`, `null` where none is set, and
+    `Cache-Control: public, max-age=60`. Each minimum is configuration per environment (K3.9), never code; a malformed
+    value refuses boot.
+  - **The app** asks at launch and at every resume, compares its own bundle's version (numeric `x.y.z`, never
+    pubspec or a constant) with its platform's minimum, and below it shows a blocking update screen with a button to
+    its store page, signed in or not, with no way past. **It fails open**: offline, an error, a missing or unreadable
+    minimum, a platform without a store (web, desktop) never block.
+  - **A 426 Upgrade Required** from any of the project's own servers raises the same screen, so a gateway can refuse a
+    version by its `User-Agent` (K5.7) without a server release.
+
+  **Pass:** the route answers in every environment; on staging, a minimum set above the installed version shows the
+  update screen at the next resume, and removing it lets a fresh launch through.
 
 ---
 

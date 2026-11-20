@@ -523,6 +523,18 @@ pass is the human's and must not be claimed otherwise. **Never verify by screens
 Service URI in chat the moment `flutter run` prints it: it is unique per run and unrecoverable
 afterwards.
 
+### K8.6 — the minimum version
+- The installed version is `PackageInfo.fromPlatform()`'s `version`, compared part by part as integers
+  (`0.9.0 < 0.10.0`); an unreadable value on either side is "not below".
+- One `Notifier<bool>` holds "update required": `check()` at launch (the root widget's `initState`) and on
+  `AppLifecycleState.resumed`, `markRequired()` from a Dio interceptor seeing 426 on every client of the project's own
+  servers (not third-party APIs). It never goes back to false while the app runs.
+- One gate widget above everything else in `MaterialApp.builder` (above any lock screen) covers the app with the update
+  screen, built from design-system components (K3.3), with `ExcludeSemantics` underneath. The store link opens outside
+  the app (`url_launcher`, `LaunchMode.externalApplication`).
+- Tests: the comparison, each platform's minimum, fail-open on a thrown fetch, a 426 raising it and a 500 not, the gate
+  covering its child.
+
 ### K8.4 — Sentry: the context that makes a crash report useful, then the symbols
 
 ```bash
