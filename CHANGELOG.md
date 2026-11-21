@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.11.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.10.5...v2.11.0) (2026-11-21)
+
+
+### Features
+
+* **rules:** K8.6 a store-delivered app can be told to update ([#88](https://github.com/GuillaumeDerivery/kheona-skill/issues/88)) ([c224ce4](https://github.com/GuillaumeDerivery/kheona-skill/commit/c224ce45f34cfb98435599a5d693d964c2123cc2))
+* **static-web:** K4.6 a public site's face: tags, previews, icons, crawl files, one host ([#92](https://github.com/GuillaumeDerivery/kheona-skill/issues/92)) ([8db761d](https://github.com/GuillaumeDerivery/kheona-skill/commit/8db761d8167c934387719e8e6563674504e18310))
+
 ## [2.10.5](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.10.4...v2.10.5) (2026-11-18)
 
 
