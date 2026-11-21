@@ -84,12 +84,62 @@ Substitute, and say so in the audit rather than dropping the section:
 - **K4.3** Both run as a required check on the protected branch.
 - **K4.5** What actually costs money when wrong: the analytics/consent script loading, the contact form
   submitting, every legal-document link resolving, and `<title>`/`<meta description>`/OG tags present on
-  every page.
+  every page (the full list: K4.6).
 
 ```bash
 npx linkinator ./ --recurse --skip "^https?://(?!localhost)"
 npx @lhci/cli autorun
 ```
+
+## K4.6 — Public face (a public marketing site)
+
+What search engines, link previews, browsers and stores read before anyone sees the page. Each item is one
+command against the **live** domain; run them on every page that is meant to be indexed.
+
+```bash
+D=https://<domain>
+page() { curl -fsS "$D$1"; }
+# Head tags of each indexable page
+page / | grep -oE '<title[^>]*>[^<]*|name="description"[^>]*|rel="canonical"[^>]*|<html[^>]*lang="[^"]*"|property="og:[a-z:_]*"|name="twitter:[a-z]*"' 
+page / | grep -c '<h1'                                                # exactly 1
+# Icons and app metadata, at the paths clients ask for without reading the page
+for p in /favicon.ico /apple-touch-icon.png /site.webmanifest /robots.txt /sitemap.xml; do
+  echo "$p $(curl -s -o /dev/null -w '%{http_code} %{content_type}' $D$p)"; done
+# One canonical host, HTTPS only
+curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' http://<domain>/        # 301 to https
+curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' https://www.<domain>/   # 301 to the canonical host
+curl -s -o /dev/null -w '%{http_code}\n' $D/no-such-page                         # 404, not 200
+curl -sI $D/ | grep -iE 'strict-transport|content-security|x-content-type|referrer-policy|permissions-policy'
+npx lighthouse@12 $D/ --quiet --chrome-flags=--headless=new \
+  --only-categories=performance,accessibility,best-practices,seo --output=json --output-path=lh.json
+```
+
+**Pass**, every one of these:
+- **Title and description**: a unique `<title>` of at most 60 characters and a `<meta name="description">` of 70 to
+  160 per page; longer ones are cut in results. `<html lang>` set; one `<h1>`.
+- **Canonical**: an absolute `rel="canonical"` on every indexable page, naming the canonical host.
+- **Link previews**: `og:title`, `og:description`, `og:url`, `og:type`, `og:image` (an absolute URL to a
+  **1200×630** image made for sharing, not the app icon) with `og:image:width`, `og:image:height` and
+  `og:image:alt`; `twitter:card` = `summary_large_image`. Check one with a preview debugger before launch.
+- **Icons**: `/favicon.ico` answers 200 at the root (crawlers and some browsers ask for it without reading the page),
+  plus an SVG and a 48 px PNG icon linked from the page; `/apple-touch-icon.png` (180×180, opaque) at the root;
+  `site.webmanifest` with 192 and 512 px icons, one of them `"purpose": "maskable"`.
+- **Crawl files**: `robots.txt` names the sitemap; `sitemap.xml` lists every indexable page with `<lastmod>`; the
+  404 page answers **404** and carries `noindex`; legal pages are in the sitemap.
+- **One host**: `http://` redirects 301 to `https://`; the other of `www`/apex redirects 301 to the canonical host
+  (a second host answering 200 is duplicate content); HSTS on.
+- **Languages**: each language has its own URL (`/en/`), linked with `hreflang` alternates and an `x-default`.
+  A language switched only in JavaScript on one URL is never indexed: either give it URLs or say the site is
+  single-language for search.
+- **Structured data**: JSON-LD for the organisation and, for an app's site, `MobileApplication` (name, operating
+  systems, category, publisher, the store URLs once public); valid in a rich-results test.
+- **Search engines**: the domain is verified in the search consoles that matter (a DNS TXT record, managed where
+  the zone's DNS is managed, not by hand) and the sitemap is submitted.
+- **Lighthouse**: each of the four categories at 90 or more on mobile; the remaining findings listed in the audit
+  (images sized and in a modern format, versioned assets cached long, links not told apart by colour alone,
+  valid ARIA roles).
+- **Legal**: a legal notice and a privacy policy, both linked from every page's footer. A store listing requires the
+  privacy policy URL, so an app's site is not ready to back a submission without it.
 
 ## K5 — Privacy
 
