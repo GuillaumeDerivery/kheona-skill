@@ -232,7 +232,7 @@ jobs:
 
       - name: Adapt the project to the release with Claude Code
         if: steps.claude.outputs.available == 'true'
-        uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc # v1.0.276
+        uses: anthropics/claude-code-action@acfe7992852970efb4fee683d63d628e3e52df67 # v1.0.286
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # The action refuses a run a bot started unless listed: lib's release notice is sent by the App (lib's Kheona Skill · Release).
@@ -611,7 +611,7 @@ jobs:
         id: triage
         if: steps.claude.outputs.ok == 'true'
         continue-on-error: true   # the outcome step reports a failed triage; the collected list is kept either way
-        uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc # v1.0.276
+        uses: anthropics/claude-code-action@acfe7992852970efb4fee683d63d628e3e52df67 # v1.0.286
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # The action refuses a run a bot started unless listed: the Kheona doctor dispatches this run as the App.
