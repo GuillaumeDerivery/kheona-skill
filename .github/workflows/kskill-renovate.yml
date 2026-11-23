@@ -180,7 +180,7 @@ jobs:
         with:
           token: ${{ steps.owner.outputs.token }}
           configurationFile: ${{ runner.temp }}/renovate/renovate-${{ matrix.owner }}.json
-          renovate-version: "44.242.0"
+          renovate-version: "44.257.9"
           additional-env-list: |
             GIT_CONFIG_COUNT
             GIT_CONFIG_KEY_0
