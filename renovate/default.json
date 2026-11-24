@@ -201,6 +201,17 @@
       "enabled": false
     },
     {
+      "description": "K1.3: renovate.json's constraints.flutter equals the .fvmrc pin (the repository check); the refresh-flutter job moves both, so Renovate never updates it alone.",
+      "matchDepTypes": [
+        "tool-constraint"
+      ],
+      "matchDepNames": [
+        "flutter",
+        "dart"
+      ],
+      "enabled": false
+    },
+    {
       "description": "K2.10: copies of kheona-skill's actions (an old layout) are bumped there once, never here.",
       "matchFileNames": [
         ".github/actions/kskill-*/**"
