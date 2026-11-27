@@ -52,7 +52,12 @@ export function needed() {
   if (role !== 'library' && stack === 'flutter') {
     if (CFG.workflows?.cd?.enabled !== false) out.push('kskill-deliver-flutter.yml');
     if (webDeploys()) out.push('kskill-deploy.yml');
-  } else if (role !== 'library' && (CFG.workflows?.cd?.staging || CFG.workflows?.cd?.prod)) out.push('kskill-deploy.yml');
+  } else if (role !== 'library' && (role === 'template' || CFG.workflows?.cd?.staging || CFG.workflows?.cd?.prod)) {
+    // A template ships the production deploy's caller its forks need: a fork commits nothing of its own (its targets
+    // are its Actions variable KSKILL_CD, .github/scripts/kskill-cd.sh). Inert in the template itself: its
+    // KSKILL_CD_PROD variable is "false" (scripts/kskill-repo-settings.sh), so the job is skipped before a runner starts.
+    out.push('kskill-deploy.yml');
+  }
   // A template or a library may be forked: its forks get the notice of each change (a fork with none is a no-op).
   if (role === 'template' || role === 'library') out.push('kskill-sync-upstream.yml');
   return { stack, files: out };

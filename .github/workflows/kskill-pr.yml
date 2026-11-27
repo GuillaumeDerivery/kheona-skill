@@ -422,12 +422,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           HAS_REVIEW_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+          # A fork's own deploy settings, never committed (kskill-cd.sh): laid over workflows.cd.
+          KSKILL_CD: ${{ vars.KSKILL_CD }}
         run: |
           cfg='{}'
           if raw=$(gh api "repos/$GH_REPO/contents/.kheona.json?ref=$DEFAULT_BRANCH" --jq .content 2>/dev/null); then
             cfg=$(printf '%s' "$raw" | base64 -d)
             jq empty <<<"$cfg" 2>/dev/null || { echo "::error::.kheona.json on $DEFAULT_BRANCH is not valid JSON."; exit 1; }
           fi
+          printf '%s' "$cfg" > "$RUNNER_TEMP/kheona.json"
+          cfg=$(bash "$KSKILL_HOME/.github/scripts/kskill-cd.sh" "$RUNNER_TEMP/kheona.json") || exit 1
           # `//` would turn an explicit false into the default: test for null instead.
           enabled=$(jq -r '.workflows.automerge.enabled | if . == null then true else . end' <<<"$cfg")
           case "$enabled" in true|false) ;; *) echo "::error::workflows.automerge.enabled must be true or false (got \"$enabled\")."; exit 1 ;; esac

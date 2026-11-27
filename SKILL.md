@@ -175,8 +175,9 @@ states. Which jobs a repository needs: `scripts/kskill-repo-check.sh --json`, ke
 - **K1.6 Evolution is automated end to end.** Each link that applies exists and has run at least once: Renovate's PRs
   (K1.4); a library's release notifying the repositories that use it (`workflows.releasePlease.notify`), each opening
   its own bump PR (the inbox's bump-lib job); a parent's push notifying its forks (`kskill-sync-upstream.yml`), each
-  receiving an upstream-sync PR; this repository's releases reaching every repository through one Renovate PR. A link
-  that cannot apply says why in `CLAUDE.md`.
+  fast-forwarded to it (a fork commits nothing of its own: its deploy settings are its `KSKILL_CD` variable, since
+  every fork of a network can read the others' commits); this repository's releases reaching every repository through
+  one Renovate PR. A link that cannot apply says why in `CLAUDE.md`.
 
 ## K2: CI/CD is a gate, least-privilege, pinned, and released deliberately
 

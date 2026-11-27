@@ -14,15 +14,27 @@ check() { # check <name> <output> <grep -E pattern>
 }
 ruby -ryaml -e 'w=YAML.load_file(ARGV[0]); File.write(ARGV[1], w["jobs"]["plan"]["steps"].find{|x| x["id"]=="read"}["run"])' \
   "$HERE/.github/workflows/kskill-deploy.yml" "$T/plan.sh"
-# plan <name> <.kheona.json> [environment]: "rc=N" then the outputs and the annotations. The environment comes from
-# the release check (test-release-check.sh), which runs before this step.
+# plan <name> <.kheona.json> [environment] [KSKILL_CD]: "rc=N" then the outputs and the annotations. The environment
+# comes from the release check (test-release-check.sh), which runs before this step; KSKILL_CD is the fork's variable.
 plan() {
   local d="$T/$1"; mkdir -p "$d"; printf '%s' "$2" > "$d/.kheona.json"
-  (cd "$d" && GITHUB_OUTPUT="$d/out" ENVIRONMENT="${3-staging}" GITHUB_REPOSITORY=o/r GITHUB_STEP_SUMMARY=/dev/null bash "$T/plan.sh" > "$d/log" 2>&1; echo "rc=$?")
+  (cd "$d" && KSKILL_HOME="$HERE" RUNNER_TEMP="$d" KSKILL_CD="${4-}" GITHUB_OUTPUT="$d/out" ENVIRONMENT="${3-staging}" GITHUB_REPOSITORY=o/r GITHUB_STEP_SUMMARY=/dev/null bash "$T/plan.sh" > "$d/log" 2>&1; echo "rc=$?")
   cat "$d/out" 2>/dev/null; grep -E '::(error|notice)::' "$d/log"
 }
 E='"ecrRepository":"x","region":"eu-west-3","cluster":"c","namespace":"n","deployments":["d"]'
 P='"ecrRepository":"y","region":"eu-west-3","cluster":"c","namespace":"n","deployments":["d"]'
+
+# A fork: the template's .kheona.json (nothing deploys there), its own targets in the variable KSKILL_CD.
+TPL='{"role":"template","workflows":{"cd":{"templateRepository":"up/r","platform":"linux/arm64","staging":false,"prod":false}}}'
+out=$(plan fork-vars "$TPL" prod "{\"platform\":\"linux/amd64\",\"prod\":{$P}}")
+check "fork: KSKILL_CD's prod targets deploy over the template's false" "$out" '^deploy=true$'
+check "... its platform wins: the amd64 runner"            "$out" '^runner=ubuntu-24.04$'
+out=$(plan fork-vars-staging "$TPL" staging "{\"prod\":{$P}}")
+check "... an environment the variable leaves out keeps the file's (false: skipped)" "$out" '^deploy=false$'
+out=$(plan fork-bad "$TPL" prod 'nope')
+check "... a variable that is not JSON fails the run"      "$out" '^rc=1$'
+out=$(plan template-itself "$TPL" prod)
+check "the template itself, no variable: nothing deploys" "$out" '^deploy=false$'
 
 out=$(plan default "{\"workflows\":{\"cd\":{\"staging\":{$E},\"prod\":{$E}}}}")
 check "default: linux/arm64 on the arm64 runner"          "$out" '^platform=linux/arm64$'

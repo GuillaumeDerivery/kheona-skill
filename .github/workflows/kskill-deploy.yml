@@ -32,6 +32,10 @@
 # Inert without a runner: where the Actions variable KSKILL_CD_STAGING (or KSKILL_CD_PROD) is "false", the run's jobs
 # are skipped by their `if:` before any runner starts. kheona-skill's scripts/kskill-repo-settings.sh writes those
 # variables from `.kheona.json`; unset, the settings job reads `.kheona.json` as before.
+# A fork keeps its own deploy settings out of git: the Actions variable KSKILL_CD (a JSON object of `workflows.cd`
+# keys) is laid over the file's `workflows.cd`, each key it sets replacing the file's (.github/scripts/kskill-cd.sh).
+# Every repository of a fork network shares its git data, so a fork's committed account, role or cluster would be
+# readable from every other fork.
 #
 # Secrets: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (only without awsRoleArn); KSKILL_TOKEN_BROKER_URL (variable: the
 # gate's repository check, the private lib submodule, and recording the digest in the release); SLACK_WEBHOOK_URL
@@ -174,14 +178,18 @@ jobs:
         id: read
         env:
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
+          # A fork's own deploy settings, never committed (kskill-cd.sh): laid over workflows.cd.
+          KSKILL_CD: ${{ vars.KSKILL_CD }}
         run: |
           set -euo pipefail
           out() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
           skip() { echo "::notice::$1"; echo "Deploy skipped: $1" >> "$GITHUB_STEP_SUMMARY"; out deploy false; exit 0; }
           fail() { echo "::error::$1"; exit 1; }
-          f=.kheona.json
-          [ -f "$f" ] || fail "$f is missing: the deploy settings live under workflows.cd (see this file's header)."
-          jq -e . "$f" > /dev/null || fail "$f is not valid JSON."
+          [ -f .kheona.json ] || fail ".kheona.json is missing: the deploy settings live under workflows.cd (see this file's header)."
+          jq -e . .kheona.json > /dev/null || fail ".kheona.json is not valid JSON."
+          f="$RUNNER_TEMP/kheona.json"
+          bash "$KSKILL_HOME/.github/scripts/kskill-cd.sh" .kheona.json > "$f" || fail "The deploy settings cannot be read (above)."
+          [ -z "${KSKILL_CD//[[:space:]]/}" ] || echo "Deploy settings: .kheona.json with the variable KSKILL_CD over workflows.cd." | tee -a "$GITHUB_STEP_SUMMARY"
 
           [ "$(jq -r '.workflows.cd.enabled' "$f")" != false ] || skip "workflows.cd.enabled is false: this repository deploys nothing here."
           template=$(jq -r '.workflows.cd.templateRepository // empty' "$f")

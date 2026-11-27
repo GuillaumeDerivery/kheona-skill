@@ -17,7 +17,8 @@
 # Labels (`api: label`): a declared label must exist; --apply creates a missing one, never edits or deletes one.
 # Actions variables (`api: variable`): `variable` names it, `derive` is a jq expression over the repository's .kheona.json
 # ($repo, $fork bound) giving its value; "" means the variable must not exist (--apply deletes it). They let a template
-# skip a switched-off job in its `if:`, before any runner starts (`vars.<NAME>`), which `.kheona.json` cannot do.
+# skip a switched-off job in its `if:`, before any runner starts (`vars.<NAME>`), which `.kheona.json` cannot do. A
+# fork's Actions variable KSKILL_CD (its deploy settings, never committed) is laid over `workflows.cd` first.
 # What is wanted: config/repo-settings.json, entries in order (a `when` narrows one to forks or roles), then the
 # repository's .kheona.json `settings` ({"<key>": {"value": <v>, "why": "..."}}; value null: not managed there; an
 # override without a `why` is refused, reported as an error, and the default stays).
@@ -67,6 +68,14 @@ if kj=$(api_get "repos/$REPO/contents/.kheona.json"); then
     { kheona='{}'; err .kheona.json "not valid JSON: its settings overrides and role are ignored"; }
 fi
 role=$(jq -r '.role // empty' <<<"$kheona")
+# A fork's own deploy settings live in its Actions variable KSKILL_CD, never in git (.github/scripts/kskill-cd.sh):
+# the variables below are derived from .kheona.json with it laid over workflows.cd, as the deploy reads them.
+if cdv=$(api_get "repos/$REPO/actions/variables/KSKILL_CD"); then
+  over=$(jq -r '.value // ""' <<<"$cdv")
+  if jq -e 'type == "object"' <<<"$over" >/dev/null 2>&1; then
+    kheona=$(jq -c --argjson o "$over" '.workflows = ((.workflows // {}) | .cd = ((.cd // {}) + $o))' <<<"$kheona")
+  else err variable_kskill_cd "the Actions variable KSKILL_CD is not a JSON object: the deploy fails on it, and the switches are derived without it"; fi
+fi
 
 # Actions variables: each `derive` evaluated over .kheona.json becomes the entry's value (a string; "" = must not exist).
 decl=$(cat "$DECL" 2>/dev/null) || { echo "kskill-repo-settings.sh: cannot read $DECL" >&2; exit 64; }

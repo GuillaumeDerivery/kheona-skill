@@ -115,7 +115,7 @@ check "failed: nothing dispatched"                                 "$(cat "$FAKE
 
 # ---- The merge job's configuration: does the review run here? release-please's settings ----------------------------
 config() { (cd "$T" && : > "$T/output" && env PATH="$T/bin:$PATH" FAKE="$FAKE" GH_REPO=o/r GH_TOKEN=gha DEFAULT_BRANCH=main \
-  GITHUB_OUTPUT="$T/output" GITHUB_STEP_SUMMARY=/dev/null "$@" bash -eo pipefail config.sh 2>&1 && cat "$T/output"); }
+  KSKILL_HOME="$HERE" RUNNER_TEMP="$T" GITHUB_OUTPUT="$T/output" GITHUB_STEP_SUMMARY=/dev/null "$@" bash -eo pipefail config.sh 2>&1 && cat "$T/output"); }
 kheona() { put kheona.json "{\"content\":\"$(printf '%s' "$1" | base64 | tr -d '\n')\"}"; }
 reset; kheona '{"role":"library"}'
 put workflows.json '[{"name":"kskill-ci.yml"},{"name":"kskill-pr.yml"}]'
