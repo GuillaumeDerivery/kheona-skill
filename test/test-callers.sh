@@ -78,6 +78,8 @@ check "... the stack: node, deploys nothing from main" "$(node "$C" stack --repo
 echo '{"role":"library","workflows":{"cd":{"target":"custom","prod":{}}}}' > "$R/.kheona.json"; w "$R"
 check "... no staging to hand over, even with a custom target" "$(grep -c 'custom:' "$R/.github/workflows/kskill-main.yml")" '^0$'
 R=$T/py; mkdir -p "$R"; : > "$R/Pipfile"; w "$R"
+R=$T/tpl; mkdir -p "$R"; : > "$R/Pipfile"; echo '{"role":"template","workflows":{"cd":{"templateRepository":"owner/tpl","staging":false,"prod":false}}}' > "$R/.kheona.json"; w "$R"
+check "a template ships the deploy caller its forks use, its own deploys off" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-claude.yml kskill-deploy.yml kskill-inbox.yml kskill-main.yml kskill-pr.yml kskill-release-please.yml kskill-sync-upstream.yml $'
 check "Python: a service" "$(node "$C" stack --repo "$R" | tr '\n' ' ')" '^stack=python deploys=true $'
 R=$T/nostack; mkdir -p "$R"; echo '{"role":"project"}' > "$R/.kheona.json"; w "$R"
 check "no stack: @claude, the inbox and release-please, no CI" "$(ls "$R/.github/workflows" | tr '\n' ' ')" '^kskill-claude.yml kskill-inbox.yml kskill-release-please.yml $'

@@ -70,7 +70,14 @@ Every value comes from the calling repository, set as an Actions variable on the
 | `KSKILL_AUTOMERGE` | PR | `false` stops merging automation PRs, a library's release PR excepted |
 | `KSKILL_DIST_REBUILD` | PR | `true` rebuilds a committed output on the PR's branch |
 | `KSKILL_CD_STAGING`, `KSKILL_CD_PROD` | Deploy, delivery | `false` turns that environment off (`PROD`: version tags) |
+| `KSKILL_CD` | Deploy, delivery, PR, settings | A fork's own deploy settings: a JSON object of `workflows.cd` keys (`staging`, `prod`, `platform`, ...), each replacing the file's. Set by a person (`gh variable set KSKILL_CD -R owner/fork < cd.json`); never in a commit (below) |
 | `BUILD_NUMBER_OVERRIDE` | Flutter delivery | Replaces the build number for one run |
 | `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_REGION_URL` | Sentry triage | Which Sentry project to read |
 
 A caller grants `id-token: write`: the broker and AWS both use the job's OIDC identity.
+
+**A fork commits nothing of its own.** Every repository of a fork network shares its git data: a commit pushed to one
+fork can be read from any other by its SHA, under any owner. So a fork's `.kheona.json` is its parent's, byte for byte,
+and what makes it this owner's deployment (account, roles, ECR repository, cluster, namespaces, platform) is its
+`KSKILL_CD` variable; its notes live in its owner's own repositories. A template ships the deploy caller its forks
+use, and the upstream sync fast-forwards a fork that carries no commit (`kskill-inbox.yml`, sync-upstream).

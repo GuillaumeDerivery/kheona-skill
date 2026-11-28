@@ -166,9 +166,12 @@ jobs:
 
       - name: Read .kheona.json
         id: read
+        env:
+          # A fork's own delivery settings, never committed (kskill-cd.sh): laid over workflows.cd.
+          KSKILL_CD: ${{ vars.KSKILL_CD }}
         run: |
           json='{}'
-          if [ -f .kheona.json ]; then json="$(cat .kheona.json)"; fi
+          if [ -f .kheona.json ]; then json="$(bash "$KSKILL_HOME/.github/scripts/kskill-cd.sh" .kheona.json)" || exit 1; fi
           get() { # get <jq path> <default>: the value as a string, the default when absent or null
             jq -r --arg d "$2" "($1) as \$v | if \$v == null then \$d else (\$v | tostring) end" <<<"$json"
           }

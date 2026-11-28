@@ -159,6 +159,14 @@ check "variables: a fork's own prod deploys; stale ones are deleted or corrected
   '["variable_cd_staging"] PATCH repos/org/tfork/actions/variables/KSKILL_CD_STAGING {"name":"KSKILL_CD_STAGING","value":"false"}
 DELETE repos/org/tfork/actions/variables/KSKILL_CD_PROD
 DELETE repos/org/tfork/actions/variables/KSKILL_RELEASE_PR_CI'
+# A fork that commits nothing of its own: its .kheona.json is the template's, its targets are the variable KSKILL_CD.
+good org/vfork true; kj org/vfork '{"role":"template","workflows":{"cd":{"templateRepository":"owner/tpl","staging":false,"prod":false}}}'
+fix "repos/org/vfork/actions/variables/KSKILL_CD" '{"name":"KSKILL_CD","value":"{\"staging\":{\"cluster\":\"c\"},\"prod\":{\"cluster\":\"c\"}}"}'
+check "variables: a fork's KSKILL_CD switches its deploys on over the template's .kheona.json" \
+  "$(run org/vfork --json | j '[.settings[] | select(.api == "variable" and (.key | startswith("variable_cd_"))) | .want]')" '["",""]'
+fix "repos/org/vfork/actions/variables/KSKILL_CD" '{"name":"KSKILL_CD","value":"not json"}'
+check "variables: a KSKILL_CD that is not a JSON object is an error, the file alone decides" \
+  "$(run org/vfork --json | j '[[.errors[].key], [.settings[] | select(.api == "variable" and (.key | startswith("variable_cd_"))) | .want]]')" '[["variable_kskill_cd"],["false","false"]]'
 good org/sw; kj org/sw '{"role":"project","workflows":{"ci":{"runOnPush":false},"automerge":{"enabled":false},"cd":{"staging":{"cluster":"c"},"prod":{"cluster":"c"},"enabled":true}}}'
 out=$(run org/sw --json)
 check "variables: the automerge switch; runOnPush is retired (no variable); a deploying project keeps its deploys" \

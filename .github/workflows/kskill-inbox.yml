@@ -332,13 +332,18 @@ jobs:
   # for a repository meant to be forked; the same file plays both roles:
   #   - in the PARENT (not a fork): every push to the default branch sends `repository_dispatch`
   #     `upstream-updated` to each of its forks (listed through the GitHub API, nothing to maintain);
-  #   - in a FORK: that signal or a manual run merges the parent's default branch into chore/sync-upstream and opens
-  #     or updates a PR, or opens an issue on a merge conflict. No schedule: the parent's notice is the only path, and
-  #     the Kheona doctor is the safety net (a fork behind its parent with no sync PR is a map rule, whose remedy
-  #     dispatches this job).
-  # It never pushes to the fork's default branch. `Kheona Skill · PR` merges the sync PR with a merge commit once
-  # CI and Claude's review (OK to merge) passed it, where the fork's default branch deploys nothing to production;
-  # otherwise a person merges it, because a fork's merge can deploy.
+  #   - in a FORK: that signal or a manual run brings the parent's default branch in. A fork that carries no commit of
+  #     its own (the rule: a fork's settings are Actions variables, KSKILL_CD, because every repository of a fork
+  #     network shares its git data) is fast-forwarded to the parent's commits by GitHub's own sync (merge-upstream):
+  #     no merge commit, no PR; the push to its default branch then runs Kheona Skill · Main (the gate, and staging).
+  #     A fork that still carries commits of its own gets the older path, with a warning: the parent merged into
+  #     chore/sync-upstream and a PR, or an issue on a merge conflict. No schedule: the parent's notice is the only
+  #     path, and the Kheona doctor is the safety net (a fork behind its parent with no sync PR is a map rule, whose
+  #     remedy dispatches this job).
+  # The fast-forward is the only push to the fork's default branch. `Kheona Skill · PR` merges a sync PR with a merge
+  # commit once CI and Claude's review (OK to merge) passed it, where the fork's default branch deploys nothing to
+  # production; otherwise a person merges it, because a fork's merge can deploy. Production stays a version tag a
+  # person publishes (K2.8): neither path releases.
   # Secrets KSKILL_TOKEN_BROKER_URL (the automation App). Parent: dispatches to the forks, under any
   # owner (a token per owner, .github/scripts/kskill-app-tokens.mjs; missing: warns, notifies none), found in each
   # owner's installation by their `parent` (the forks listing shows only what the parent owner's token can see). Fork: reads the
@@ -430,6 +435,15 @@ jobs:
             echo "status=current" >> "$GITHUB_OUTPUT"; exit 0
           fi
           echo "behind=$(git rev-list --count "HEAD..upstream/$parent_branch")" >> "$GITHUB_OUTPUT"
+          # A fork that carries nothing of its own (its settings are Actions variables, KSKILL_CD) is the parent's
+          # branch, behind: it moves to the parent's very commits, no merge commit (whose message would name this
+          # fork's owner, readable from every repository of the fork network).
+          if git merge-base --is-ancestor HEAD "upstream/$parent_branch"; then
+            echo "status=fastforward" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          own=$(git rev-list --count --no-merges "upstream/$parent_branch..HEAD")
+          echo "own=$own" >> "$GITHUB_OUTPUT"
+          echo "::warning::This fork carries $own commit(s) of its own: a fork commits nothing (its deploy settings are the Actions variable KSKILL_CD), so the parent's commits reach it as a fast-forward. Until then, a merge PR."
           git switch -C "$BRANCH"
           if git merge --no-edit "upstream/$parent_branch"; then
             echo "status=merged" >> "$GITHUB_OUTPUT"
@@ -439,15 +453,31 @@ jobs:
             echo "status=conflict" >> "$GITHUB_OUTPUT"
           fi
 
+      # GitHub's own "Sync fork": a fast-forward of the default branch to the parent's (the same commits, workflow
+      # files included). Refused when it is not one (the branch moved meanwhile): the next signal tries again.
+      - name: Fast-forward to the parent
+        if: steps.merge.outputs.status == 'fastforward'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PARENT: ${{ steps.merge.outputs.parent }}
+          BEHIND: ${{ steps.merge.outputs.behind }}
+        run: |
+          type=$(gh api -X POST "repos/$GH_REPO/merge-upstream" -f branch="$BASE" --jq '.merge_type')
+          if [ "$type" != fast-forward ] && [ "$type" != none ]; then
+            echo "::error::GitHub synced $BASE with a '$type', not a fast-forward."; exit 1
+          fi
+          echo "$BASE fast-forwarded to $PARENT ($BEHIND new commit(s))." | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Open or update the PR
         if: steps.merge.outputs.status == 'merged'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           PARENT: ${{ steps.merge.outputs.parent }}
           BEHIND: ${{ steps.merge.outputs.behind }}
+          OWN: ${{ steps.merge.outputs.own }}
         run: |
           git push --force origin "$BRANCH"
-          body="Merges ${BEHIND} new commit(s) from \`$PARENT\`. Check the parent's changelog, and that this fork's own changes and configuration still hold. \`Kheona Skill · PR\` merges it (a merge commit) once CI and Claude's review pass it, where this fork's main deploys nothing to production; otherwise a person does. Opened by \`Kheona Skill · Sync upstream\`."
+          body="Merges ${BEHIND} new commit(s) from \`$PARENT\`. This fork carries ${OWN} commit(s) of its own: a fork should commit nothing (its deploy settings are the Actions variable KSKILL_CD), so that the parent's commits reach it as a fast-forward. Check the parent's changelog, and that this fork's own changes and configuration still hold. \`Kheona Skill · PR\` merges it (a merge commit) once CI and Claude's review pass it, where this fork's main deploys nothing to production; otherwise a person does. Opened by \`Kheona Skill · Sync upstream\`."
           if [ "$(gh pr list --head "$BRANCH" --state open --json number --jq length)" != "0" ]; then
             gh pr edit "$BRANCH" --body "$body"; exit 0
           fi

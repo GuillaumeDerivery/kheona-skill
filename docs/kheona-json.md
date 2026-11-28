@@ -14,6 +14,7 @@ Each shared workflow's header comment lists the keys it reads, their types and d
 | `workflows.cd.target` | `eks` | `custom`: the repository's own workflow deploys, after the release check and the gate |
 | `workflows.cd.custom.workflow` | `deploy.yml` | That workflow (`on: workflow_call`, inputs `environment` and `version`) |
 | `workflows.cd.<env>` | none | `staging` (from `main`) or `prod` (from a version tag): `ecrRepository`, `region`, `cluster`, `namespace`, `deployments`, `cronjobs`, `buildArgs`, `awsRoleArn`; `false` = none. In a Flutter app, an object here also deploys the web build: the repository's `Dockerfile` as an image, next to the store delivery (staging from `main`, `prod` from the same version tag) |
+| `KSKILL_CD` (an Actions variable, not a key) | none | In a fork: its `workflows.cd` keys, laid over the file's, so the fork commits nothing of its own (`docs/secrets.md`, Variables) |
 | `workflows.local.<file>` | none | A workflow of the repository's own; the value is the reason |
 | `workflows.library.package` | none | The npm name of a library submodule, for the `.env` rule of its services |
 | `workflows.releasePlease.merge` | `person`; `gate` in a library | Who merges the release PR; `gate` and `daily` are for a library only |
