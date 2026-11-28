@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.12.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.11.0...v2.12.0) (2026-11-28)
+
+
+### Features
+
+* **forks:** a fork commits nothing; its deploy settings are the KSKILL_CD variable ([#96](https://github.com/GuillaumeDerivery/kheona-skill/issues/96)) ([b250d6d](https://github.com/GuillaumeDerivery/kheona-skill/commit/b250d6d757075eedd7048fd987a6e2105397365c))
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#93](https://github.com/GuillaumeDerivery/kheona-skill/issues/93)) ([e19f230](https://github.com/GuillaumeDerivery/kheona-skill/commit/e19f2304bfacad5c246a4a475ae430280a388176))
+* **renovate:** never update the Flutter tool constraint alone ([#95](https://github.com/GuillaumeDerivery/kheona-skill/issues/95)) ([c3bce66](https://github.com/GuillaumeDerivery/kheona-skill/commit/c3bce6669d8d88e62554cba94c1612c2c9a2902b))
+
 ## [2.11.0](https://github.com/GuillaumeDerivery/kheona-skill/compare/v2.10.5...v2.11.0) (2026-11-21)
 
 
